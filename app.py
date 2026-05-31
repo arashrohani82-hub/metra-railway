@@ -224,7 +224,7 @@ def api_pdf():
     return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=filename)
 
 # ── Telegram Bot (Webhook) ───────────────────────────────────────────
-@app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
+@app.route('/webhook/telegram', methods=['POST'])
 def webhook():
     import requests as req
     data = request.json
