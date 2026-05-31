@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Métra Structure — ODS Generator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#F7F6F2;color:#1A1917;min-height:100vh;padding:2rem 1rem}
+.container{max-width:680px;margin:0 auto}
+.logo-bar{display:flex;align-items:center;gap:12px;margin-bottom:2rem}
+.logo-mark{width:36px;height:36px;background:#1A1917;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:600}
+.logo-text{font-size:15px;font-weight:500}
+.logo-sub{font-size:12px;color:#8A8880;margin-top:2px}
+.card{background:white;border:1px solid #E2E0D8;border-radius:12px;margin-bottom:12px;overflow:hidden}
+.card.disabled{opacity:.4;pointer-events:none}
+.card-header{padding:14px 18px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #E2E0D8}
+.num{width:22px;height:22px;border-radius:50%;background:#F7F6F2;border:1px solid #E2E0D8;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;color:#8A8880;flex-shrink:0}
+.num.done{background:#E1F5EE;border-color:#1D9E75;color:#0F6E56}
+.card-title{font-size:14px;font-weight:500}
+.card-body{padding:16px 18px}
+.upload-zone{border:1.5px dashed #E2E0D8;border-radius:10px;padding:2.5rem 1rem;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+.upload-zone:hover{border-color:#0F6E56;background:#E1F5EE}
+.upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.preview{width:100%;max-height:200px;object-fit:contain;border-radius:8px;border:1px solid #E2E0D8;margin-top:10px;display:none}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field.full{grid-column:1/-1}
+.field label{font-size:11px;font-weight:500;color:#8A8880;text-transform:uppercase;letter-spacing:.5px}
+.field input,.field textarea{font-family:system-ui;font-size:13px;padding:8px 11px;border:1px solid #E2E0D8;border-radius:6px;background:#F7F6F2;color:#1A1917;width:100%}
+.field input:focus,.field textarea:focus{outline:none;border-color:#0F6E56;background:white}
+.field input.ok{border-color:#1D9E75;background:#E1F5EE}
+.field textarea{resize:vertical;min-height:60px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.pill{border:1px solid #E2E0D8;border-radius:20px;padding:5px 13px;font-size:12px;cursor:pointer;color:#8A8880;background:#F7F6F2;transition:all .15s;white-space:nowrap}
+.pill.active{border-color:#0F6E56;background:#E1F5EE;color:#085041;font-weight:500}
+.price-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border-radius:6px;font-family:system-ui;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn-main{background:#0F6E56;color:white}
+.btn-main:hover{background:#085041}
+.btn-out{background:white;color:#1A1917;border:1px solid #E2E0D8}
+.btn-out:disabled{opacity:.4;cursor:not-allowed}
+.status{display:none;align-items:center;gap:7px;font-size:12px;margin-top:10px;padding:8px 12px;border-radius:6px}
+.status.loading{color:#185FA5;background:#E6F1FB;display:flex}
+.status.success{color:#085041;background:#E1F5EE;display:flex}
+.status.error{color:#C0392B;background:#FCEBEB;display:flex}
+.spinner{width:13px;height:13px;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+footer{text-align:center;margin-top:2rem;font-size:11px;color:#8A8880}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo-bar">
+    <div class="logo-mark">MS</div>
+    <div>
+      <div class="logo-text">Métra Structure Inc.</div>
+      <div class="logo-sub">Générateur d'offres de services</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="num" id="n1">1</div><span class="card-title">Photo du client</span></div>
+    <div class="card-body">
+      <div class="upload-zone" id="dz">
+        <input type="file" id="fi" accept="image/*" onchange="handleFile(event)">
+        <div style="font-size:2rem;margin-bottom:8px">📋</div>
+        <p><strong>Cliquez ou glissez une image ici</strong></p>
+        <p style="margin-top:4px;color:#8A8880;font-size:13px">SoumissionRenovation · courriel · formulaire</p>
+      </div>
+      <img id="prev" class="preview" alt="">
+      <div class="status" id="s1"></div>
+    </div>
+  </div>
+
+  <div class="card disabled" id="c2">
+    <div class="card-header"><div class="num" id="n2">2</div><span class="card-title">Informations extraites</span></div>
+    <div class="card-body">
+      <div class="field-grid">
+        <div class="field"><label>Nom du client</label><input id="f-name" placeholder="—"></div>
+        <div class="field"><label>Téléphone</label><input id="f-phone" placeholder="—"></div>
+        <div class="field full"><label>Courriel</label><input id="f-email" placeholder="—"></div>
+        <div class="field full"><label>Adresse du projet</label><input id="f-addr" placeholder="—"></div>
+        <div class="field"><label>Type de propriété</label><input id="f-type" placeholder="—"></div>
+        <div class="field"><label>Réf. SoumissionRenovation</label><input id="f-ref" placeholder="—"></div>
+        <div class="field full"><label>Description du projet</label><textarea id="f-desc" placeholder="—"></textarea></div>
+      </div>
+      <p style="font-size:11px;color:#8A8880;margin-top:8px">Tous les champs sont modifiables</p>
+    </div>
+  </div>
+
+  <div class="card disabled" id="c3">
+    <div class="card-header"><div class="num" id="n3">3</div><span class="card-title">Service & honoraires</span></div>
+    <div class="card-body">
+      <div class="pills" id="pills">
+        <div class="pill" onclick="pick(this,'Analyse structurale générale',3500)">Analyse structurale</div>
+        <div class="pill" onclick="pick(this,'Inspection et rapport structural',2800)">Inspection & rapport</div>
+        <div class="pill" onclick="pick(this,&quot;Avis d'expert — stabilisation et renforcement&quot;,3200)">Avis d'expert</div>
+        <div class="pill" onclick="pick(this,'Enlèvement de mur porteur',3800)">Mur porteur</div>
+        <div class="pill" onclick="pick(this,'Inspection des fondations',2500)">Fondations</div>
+        <div class="pill" onclick="pick(this,'Évaluation des fissures et désordres structuraux',2200)">Fissures</div>
+        <div class="pill" onclick="pick(this,'Mur de soutènement',4200)">Soutènement</div>
+        <div class="pill" onclick="pick(this,'Conception structurale complète',6500)">Conception complète</div>
+        <div class="pill" onclick="pick(this,'Analyse structurale — sous-sol et ajout au-dessus du garage',4500)">Sous-sol + garage</div>
+        <div class="pill" onclick="pick(this,'Réaménagement intérieur avec modification structurale',3500)">Réaménagement intérieur</div>
+      </div>
+      <div class="price-row">
+        <div class="field"><label>N° ODS</label><input id="f-num" placeholder="ODS26-XXX"></div>
+        <div class="field"><label>Honoraires (CAD$)</label><input id="f-price" type="number" value="3200"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card disabled" id="c4">
+    <div class="card-header"><div class="num" id="n4">4</div><span class="card-title">Télécharger le PDF</span></div>
+    <div class="card-body">
+      <div class="btn-row">
+        <button class="btn btn-main" onclick="getPDF()">⬇ Télécharger PDF</button>
+      </div>
+      <div class="status" id="s4"></div>
+    </div>
+  </div>
+
+  <footer>Métra Structure Inc. · Système interne · Propulsé par Claude</footer>
+</div>
+<script>
+let b64=null,mime='image/jpeg',svc='',price=3200;
+
+document.getElementById('dz').addEventListener('dragover',e=>{e.preventDefault()});
+document.getElementById('dz').addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)go(f)});
+function handleFile(e){go(e.target.files[0])}
+
+function go(f){
+  mime=f.type||'image/jpeg';
+  const r=new FileReader();
+  r.onload=e=>{
+    b64=e.target.result.split(',')[1];
+    document.getElementById('prev').src=e.target.result;
+    document.getElementById('prev').style.display='block';
+    done('n1');
+    extract();
+  };
+  r.readAsDataURL(f);
+}
+
+async function extract(){
+  st('s1','loading','Extraction en cours...');
+  ['c2','c3','c4'].forEach(id=>document.getElementById(id).classList.remove('disabled'));
+  try{
+    const res=await fetch('/api/extract',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image:b64,mime})
+    });
+    if(!res.ok)throw new Error(await res.text());
+    const info=await res.json();
+    fill('f-name',info.client_name);
+    fill('f-phone',info.phone);
+    fill('f-email',info.email);
+    fill('f-addr',info.address);
+    fill('f-ref',info.soumission_ref);
+    fill('f-desc',info.project_description);
+    fill('f-type',info.property_type);
+    const yr=new Date().getFullYear().toString().slice(-2);
+    document.getElementById('f-num').value=`ODS${yr}-${Math.floor(Math.random()*900+100)}`;
+    if(info.suggested_service){
+      svc=info.suggested_service;
+      price=info.suggested_price||3200;
+      document.getElementById('f-price').value=price;
+      document.querySelectorAll('.pill').forEach(p=>{
+        if(info.suggested_service.toLowerCase().includes(p.textContent.trim().toLowerCase().split(' ')[0]))
+          p.classList.add('active');
+      });
+    }
+    st('s1','success','Extraction terminée — vérifiez et corrigez si nécessaire');
+    done('n2');done('n3');
+  }catch(e){
+    st('s1','error','Erreur: '+e.message);
+  }
+}
+
+function pick(el,name,p){
+  document.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));
+  el.classList.add('active');
+  svc=name;price=p;
+  document.getElementById('f-price').value=p;
+}
+
+async function getPDF(){
+  st('s4','loading','Génération du PDF...');
+  const data={
+    name:v('f-name'),phone:v('f-phone'),email:v('f-email'),
+    addr:v('f-addr'),ref:v('f-ref'),desc:v('f-desc'),type:v('f-type'),
+    odsNum:v('f-num'),service:svc||'Analyse structurale',
+    price:Number(v('f-price'))||3200,
+    date:new Date().toISOString().slice(0,10)
+  };
+  try{
+    const res=await fetch('/api/generate-pdf',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    if(!res.ok)throw new Error(await res.text());
+    const blob=await res.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`${data.odsNum}_${data.name.replace(/\s+/g,'-')}.pdf`;
+    a.click();
+    st('s4','success','PDF téléchargé!');
+    done('n4');
+  }catch(e){
+    st('s4','error','Erreur: '+e.message);
+  }
+}
+
+function fill(id,val){const el=document.getElementById(id);if(!el)return;el.value=val||'';if(val)el.classList.add('ok')}
+function v(id){return(document.getElementById(id)?.value||'').trim()}
+function st(id,type,msg){const el=document.getElementById(id);el.className='status '+type;el.innerHTML=type==='loading'?`<div class="spinner"></div>${msg}`:`<span>${type==='success'?'✓':'⚠'}</span>${msg}`}
+function done(id){const el=document.getElementById(id);el.classList.add('done');el.textContent='✓'}
+</script>
+</body>
+</html>
