@@ -1,5 +1,5 @@
-import os, json, base64, io
-from flask import Flask, request, jsonify, send_file, send_from_directory
+import os, json, io
+from flask import Flask, request, jsonify, send_file, Response
 import anthropic
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -8,7 +8,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak, BaseDocTemplate, PageTemplate, Frame
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 
-app = Flask(__name__, static_folder='public')
+app = Flask(__name__)
 client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
 
 W, H = letter
@@ -21,8 +21,6 @@ LOGOS = {
     'peo':   os.path.join(BASE, 'logo_peo.png'),
     'rgcq':  os.path.join(BASE, 'logo_rgcq.png'),
 }
-
-# ── PDF Generator ────────────────────────────────────────────────────
 
 def draw_header_footer(canvas, doc):
     canvas.saveState()
@@ -58,21 +56,15 @@ def generate_pdf(data):
         return ParagraphStyle(name, fontName=font, fontSize=size, leading=leading,
                               textColor=BLACK, alignment=align, spaceBefore=sb, spaceAfter=sa)
 
-    sn  = s('n')
-    sb_ = s('b', font='Helvetica-Bold')
-    sh  = s('h', font='Helvetica-Bold', sb=6, sa=2)
-    sr  = s('r', align=TA_RIGHT)
-    sj  = s('j', leading=13, sb=3, sa=3)
-    sc  = s('cadre', font='Helvetica-Bold', size=10, leading=14, sb=6, sa=4, align=TA_CENTER)
-    shb = s('hb', font='Helvetica-Bold', align=TA_CENTER)
-    shn = s('hn', align=TA_CENTER)
-    str_= s('tr', align=TA_RIGHT)
+    sn=s('n'); sb_=s('b',font='Helvetica-Bold'); sh=s('h',font='Helvetica-Bold',sb=6,sa=2)
+    sr=s('r',align=TA_RIGHT); sj=s('j',leading=13,sb=3,sa=3)
+    sc=s('cadre',font='Helvetica-Bold',size=10,leading=14,sb=6,sa=4,align=TA_CENTER)
+    shb=s('hb',font='Helvetica-Bold',align=TA_CENTER); shn=s('hn',align=TA_CENTER); str_=s('tr',align=TA_RIGHT)
 
     price = float(data.get('price', 3200))
     pf = f'$ {price:,.2f}'
     story = []
 
-    # ══ PAGE 1 ══
     story.append(Paragraph(f'Date :  {data["date"]}', sr))
     story.append(Spacer(1, 5))
     story.append(Paragraph(f'M./Mme {data["name"]}', sn))
@@ -82,7 +74,6 @@ def generate_pdf(data):
     story.append(Spacer(1, 6))
     story.append(Paragraph(f'<b>{data["odsNum"]}</b>', sn))
     story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | MÉTRA STRUCTURE INC.', sc))
-
     story.append(Paragraph(
         "L'équipe de Métra Structure Inc. vous remercie pour votre confiance à l'égard de notre proposition de services. "
         "Nous vous informons que la présente offre, ainsi que les conditions qui l'accompagnent, forment un accord unique et indissociable. "
@@ -90,58 +81,41 @@ def generate_pdf(data):
         "Aux fins des présentes, le terme « Client » réfère à la personne, physique ou morale, qui confie le mandat et qui demeure responsable du paiement des honoraires afférents.", sj))
 
     for heading, text in [
-        ("1. Description des services",
-         "Métra Structure Inc. offre ses services d'ingénierie-conseil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, "
-         "notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat. "
-         "Les services sont fournis selon une obligation de moyens et non de résultat. La responsabilité de Métra Structure Inc. ne pourra excéder, "
-         "sous réserve des dispositions légales applicables, le montant des honoraires payés pour le présent mandat."),
-        ("2. Versement initial",
-         "À défaut d'une entente écrite contraire, un acompte représentant 25 % du montant total de l'offre de services est requis au moment de la signature."),
-        ("3. Honoraires et modalités de paiement",
-         "Les honoraires et frais remboursables sont facturés selon la progression des travaux et sont exigibles dès réception de la facture. "
-         "Tout montant non réglé dans un délai de trente (30) jours sera assujetti à des intérêts de 1,5 % par mois (19,56 % par année). "
-         "En cas de non-paiement, Métra Structure Inc. pourra suspendre la prestation des services. Les taxes applicables s'ajoutent aux honoraires."),
-        ("4. Gestion des retards et arrêt du projet",
-         "En cas de suspension ou d'annulation du projet, le client est responsable du paiement des coûts engagés et des prestations réalisées jusqu'à la date de notification écrite."),
-        ("5. Cadre contractuel",
-         "Ce document tient lieu d'entente complète entre les parties. Aucun changement ne sera valide à moins d'être formulé par écrit."),
+        ("1. Description des services","Métra Structure Inc. offre ses services d'ingénierie-conseil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat. Les services sont fournis selon une obligation de moyens et non de résultat. La responsabilité de Métra Structure Inc. ne pourra excéder, sous réserve des dispositions légales applicables, le montant des honoraires payés pour le présent mandat."),
+        ("2. Versement initial","À défaut d'une entente écrite contraire, un acompte représentant 25 % du montant total de l'offre de services est requis au moment de la signature."),
+        ("3. Honoraires et modalités de paiement","Les honoraires et frais remboursables sont facturés selon la progression des travaux et sont exigibles dès réception de la facture. Tout montant non réglé dans un délai de trente (30) jours sera assujetti à des intérêts de 1,5 % par mois (19,56 % par année). En cas de non-paiement, Métra Structure Inc. pourra suspendre la prestation des services. Les taxes applicables s'ajoutent aux honoraires."),
+        ("4. Gestion des retards et arrêt du projet","En cas de suspension ou d'annulation du projet, le client est responsable du paiement des coûts engagés et des prestations réalisées jusqu'à la date de notification écrite."),
+        ("5. Cadre contractuel","Ce document tient lieu d'entente complète entre les parties. Aucun changement ne sera valide à moins d'être formulé par écrit."),
     ]:
         story.append(Paragraph(f'<b>{heading}</b>', sh))
         story.append(Paragraph(text, sj))
 
-    # ══ PAGE 2 ══
     story.append(PageBreak())
     story.append(Paragraph('<b>6. Présence sur site et logistique</b>', sh))
     story.append(Paragraph("Toute requête impliquant une visite ou un déplacement sur le chantier doit être transmise au moins quarante-huit (48) heures avant la date prévue.", sj))
     story.append(Spacer(1, 6))
     story.append(Paragraph('<b>TAUX HORAIRES</b>', sb_))
     story.append(Spacer(1, 3))
-    rt = Table([[Paragraph(r, str_), Paragraph(v, sn)] for r, v in [
-        ('Ingénieur senior :', '130 $ /h'),
-        ('Ingénieur intermédiaire :', '110 $ /h'),
-        ('Ingénieur junior :', '105 $ /h'),
-        ('Technicien :', '100 $ /h'),
-        ('Dessinateur :', '85 $ /h'),
+    rt = Table([[Paragraph(r, str_), Paragraph(v, sn)] for r,v in [
+        ('Ingénieur senior :','130 $ /h'),('Ingénieur intermédiaire :','110 $ /h'),
+        ('Ingénieur junior :','105 $ /h'),('Technicien :','100 $ /h'),('Dessinateur :','85 $ /h'),
     ]], colWidths=[9*cm, 3*cm])
     rt.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(rt)
     story.append(Spacer(1, 10))
     story.append(Paragraph('<b>HONORAIRES – FORFAIT DU PROJET</b>', sb_))
     story.append(Spacer(1, 5))
-
     hon_data = [
-        [Paragraph('<b>Description des services</b>', shb), Paragraph('<b>Unité</b>', shb),
-         Paragraph('<b>Quantité</b>', shb), Paragraph('<b>Coût unitaire</b>', shb), Paragraph('<b>Coût total</b>', shb)],
-        [Paragraph(data.get('desc', data.get('service', '')), s('sd', leading=13)),
-         Paragraph('Forfait', shn), Paragraph('1', shn), Paragraph(pf, shn), Paragraph(pf, shn)],
-        ['', '', '', Paragraph('Total des honoraires du projet', str_), Paragraph(f'<b>{pf}</b>', shb)],
+        [Paragraph('<b>Description des services</b>',shb),Paragraph('<b>Unité</b>',shb),Paragraph('<b>Quantité</b>',shb),Paragraph('<b>Coût unitaire</b>',shb),Paragraph('<b>Coût total</b>',shb)],
+        [Paragraph(data.get('desc', data.get('service','')),s('sd',leading=13)),Paragraph('Forfait',shn),Paragraph('1',shn),Paragraph(pf,shn),Paragraph(pf,shn)],
+        ['','','',Paragraph('Total des honoraires du projet',str_),Paragraph(f'<b>{pf}</b>',shb)],
     ]
-    ht = Table(hon_data, colWidths=[8.5*cm, 1.8*cm, 1.8*cm, 3.8*cm, 2.6*cm])
+    ht = Table(hon_data, colWidths=[8.5*cm,1.8*cm,1.8*cm,3.8*cm,2.6*cm])
     ht.setStyle(TableStyle([
-        ('BOX',(0,0),(-1,-1),0.5,BLACK), ('INNERGRID',(0,0),(-1,-1),0.5,BLACK),
-        ('TOPPADDING',(0,0),(-1,-1),6), ('BOTTOMPADDING',(0,0),(-1,-1),6),
-        ('LEFTPADDING',(0,0),(-1,-1),5), ('RIGHTPADDING',(0,0),(-1,-1),5),
-        ('VALIGN',(0,0),(-1,-1),'TOP'), ('SPAN',(0,2),(2,2)),
+        ('BOX',(0,0),(-1,-1),0.5,BLACK),('INNERGRID',(0,0),(-1,-1),0.5,BLACK),
+        ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+        ('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),('SPAN',(0,2),(2,2)),
     ]))
     story.append(ht)
     story.append(Spacer(1, 8))
@@ -160,64 +134,45 @@ def generate_pdf(data):
     story.append(Paragraph("La présente offre est valable pour une durée de trente (30) jours. Afin de l'accepter, veuillez compléter les sections suivantes.", sn))
     story.append(Spacer(1, 16))
     sig = Table([
-        [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.', sn), Paragraph('<b>Nom du client:</b>', sn)],
-        [Paragraph('Président-Ingénieur en structure', sn), ''],
-        [Paragraph('Métra Structure Inc.', sn), Paragraph('<b>Date:</b>', sn)],
-    ], colWidths=[9*cm, 8.5*cm])
+        [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.',sn),Paragraph('<b>Nom du client:</b>',sn)],
+        [Paragraph('Président-Ingénieur en structure',sn),''],
+        [Paragraph('Métra Structure Inc.',sn),Paragraph('<b>Date:</b>',sn)],
+    ], colWidths=[9*cm,8.5*cm])
     sig.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4)]))
     story.append(sig)
-
     doc.build(story)
     buf.seek(0)
     return buf
 
-# ── Routes ───────────────────────────────────────────────────────────
-
 @app.route('/')
 def index():
-    return send_from_directory('public', 'index.html')
+    with open(os.path.join(BASE, 'public', 'index.html'), 'r', encoding='utf-8') as f:
+        return Response(f.read(), mimetype='text/html')
 
 @app.route('/api/extract', methods=['POST'])
 def extract():
     data = request.json
-    image_b64 = data.get('image')
-    mime = data.get('mime', 'image/jpeg')
-
     prompt = """This is a client document (SoumissionRenovation.ca screenshot, email, or form).
 Extract all client and project information. Return ONLY a valid JSON object:
-{
-  "client_name": "",
-  "phone": "",
-  "email": "",
-  "address": "",
-  "soumission_ref": "",
-  "project_description": "",
-  "property_type": "",
-  "suggested_service": "",
-  "suggested_price": 0
-}
-For suggested_service, choose the best match from: "Analyse structurale générale", "Inspection et rapport structural", "Avis d'expert — stabilisation et renforcement", "Enlèvement de mur porteur", "Inspection des fondations", "Évaluation des fissures et désordres structuraux", "Mur de soutènement", "Conception structurale complète", "Analyse structurale — sous-sol et ajout au-dessus du garage", "Réaménagement intérieur avec modification structurale".
-For suggested_price: realistic CAD integer. Empty string for missing. ONLY JSON."""
-
+{"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
+For suggested_service choose from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale".
+suggested_price: realistic CAD integer. Empty string for missing. ONLY JSON."""
     response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": mime, "data": image_b64}},
-            {"type": "text", "text": prompt}
+        model="claude-sonnet-4-6", max_tokens=1000,
+        messages=[{"role":"user","content":[
+            {"type":"image","source":{"type":"base64","media_type":data.get('mime','image/jpeg'),"data":data.get('image')}},
+            {"type":"text","text":prompt}
         ]}]
     )
-    text = ''.join(b.text for b in response.content if hasattr(b, 'text'))
-    text = text.replace('```json', '').replace('```', '').strip()
-    return jsonify(json.loads(text))
+    text = ''.join(b.text for b in response.content if hasattr(b,'text'))
+    return jsonify(json.loads(text.replace('```json','').replace('```','').strip()))
 
 @app.route('/api/generate-pdf', methods=['POST'])
 def generate():
     data = request.json
     buf = generate_pdf(data)
-    filename = f"{data.get('odsNum', 'ODS')}_{data.get('name', 'client').replace(' ', '-')}.pdf"
-    return send_file(buf, mimetype='application/pdf',
-                     as_attachment=True, download_name=filename)
+    filename = f"{data.get('odsNum','ODS')}_{data.get('name','client').replace(' ','-')}.pdf"
+    return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=filename)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
