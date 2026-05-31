@@ -146,7 +146,7 @@ def generate_pdf(data):
 
 @app.route('/')
 def index():
-    with open(os.path.join(BASE, 'public', 'index.html'), 'r', encoding='utf-8') as f:
+with open(os.path.join(BASE, 'index.html'), 'r', encoding='utf-8') as f:
         return Response(f.read(), mimetype='text/html')
 
 @app.route('/api/extract', methods=['POST'])
