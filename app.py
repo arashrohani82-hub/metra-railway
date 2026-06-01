@@ -10,6 +10,7 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak, 
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 import openpyxl
 import random
+import requests as req
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,7 +46,23 @@ PRICES = {
 
 user_data = {}
 
-# ── PDF Generator ────────────────────────────────────────────────────
+def tg_send(chat_id, text, keyboard=None):
+    payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}
+    if keyboard:
+        payload['reply_markup'] = {'inline_keyboard': keyboard}
+    try:
+        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Send error: {e}")
+
+def tg_send_doc(chat_id, data, filename, caption):
+    try:
+        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendDocument',
+            data={'chat_id': chat_id, 'caption': caption},
+            files={'document': (filename, data)}, timeout=30)
+    except Exception as e:
+        logger.error(f"Send doc error: {e}")
+
 def draw_header_footer(canvas, doc):
     canvas.saveState()
     canvas.drawImage(LOGOS['metra'], 1.8*cm, H-3.0*cm, width=2.8*cm, height=1.8*cm, preserveAspectRatio=True, mask='auto')
@@ -170,9 +187,10 @@ def generate_pdf(data):
 
 def generate_excel(data):
     template = os.path.join(BASE, 'template.xlsx')
-    output = f"/tmp/{data['odsNum']}.xlsx"
-    shutil.copy(template, output)
-    wb = openpyxl.load_workbook(output)
+    output_buf = io.BytesIO()
+    out_path = f"/tmp/{data['odsNum']}.xlsx"
+    shutil.copy(template, out_path)
+    wb = openpyxl.load_workbook(out_path)
     ws = wb['ODS']
     ws['B7'] = f"M./Mme {data['name']}"
     ws['B8'] = f"Adresse: :{data['addr']}"
@@ -185,8 +203,12 @@ def generate_excel(data):
     ws['E47'] = float(data['price'])
     ws['F47'] = '=E47*D47'
     ws['F48'] = '=SUM(F47:F47)'
-    wb.save(output)
-    return output
+    wb.save(out_path)
+    with open(out_path, 'rb') as f:
+        output_buf = io.BytesIO(f.read())
+    os.remove(out_path)
+    output_buf.seek(0)
+    return output_buf
 
 def extract_info(img_b64, mime='image/jpeg'):
     prompt = """This is a client document (SoumissionRenovation.ca screenshot, email, or form).
@@ -203,6 +225,89 @@ suggested_price: realistic CAD integer. ONLY JSON."""
     )
     text = ''.join(b.text for b in response.content if hasattr(b,'text'))
     return json.loads(text.replace('```json','').replace('```','').strip())
+
+def process_photo(chat_id, uid, file_id):
+    try:
+        r = req.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}', timeout=10)
+        fpath = r.json()['result']['file_path']
+        img_r = req.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}', timeout=10)
+        img_b64 = base64.b64encode(img_r.content).decode()
+
+        info = extract_info(img_b64)
+        yr = datetime.now().strftime('%y')
+        ods_num = f"ODS{yr}-{random.randint(100,999)}"
+        price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
+
+        user_data[uid] = {
+            'name': info.get('client_name',''),
+            'phone': info.get('phone',''),
+            'email': info.get('email',''),
+            'addr': info.get('address',''),
+            'ref': info.get('soumission_ref',''),
+            'desc': info.get('project_description',''),
+            'type': info.get('property_type',''),
+            'service': info.get('suggested_service','Analyse structurale générale'),
+            'price': price,
+            'odsNum': ods_num,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+        }
+
+        text = (
+            f"✅ *Informations extraites*\n\n"
+            f"👤 *Client:* {info.get('client_name','—')}\n"
+            f"📍 *Adresse:* {info.get('address','—')}\n"
+            f"📞 *Tél:* {info.get('phone','—')}\n"
+            f"📧 *Courriel:* {info.get('email','—')}\n"
+            f"🏠 *Type:* {info.get('property_type','—')}\n\n"
+            f"🔧 *Service:* {info.get('suggested_service','—')}\n"
+            f"💰 *Prix suggéré:* ${price:,} CAD\n"
+            f"📄 *N° ODS:* {ods_num}\n\n"
+            f"Choisissez le format:"
+        )
+        keyboard = [
+            [{'text':'📊 Excel', 'callback_data':'confirm_excel'},
+             {'text':'📄 PDF', 'callback_data':'confirm_pdf'}],
+            [{'text':'✏️ Changer prix', 'callback_data':'change_price'}]
+        ]
+        tg_send(chat_id, text, keyboard)
+    except Exception as e:
+        tg_send(chat_id, f"❌ Erreur: {str(e)}")
+
+def process_callback(chat_id, uid, cdata, callback_id):
+    req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+             json={'callback_query_id': callback_id}, timeout=5)
+
+    if cdata == 'confirm_excel':
+        d = user_data.get(uid)
+        if not d:
+            tg_send(chat_id, "❌ Données introuvables. Envoyez une nouvelle photo.")
+            return
+        tg_send(chat_id, "⏳ Génération du fichier Excel...")
+        try:
+            buf = generate_excel(d)
+            fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.xlsx"
+            tg_send_doc(chat_id, buf, fname, f"✅ Excel généré!\n💰 ${d['price']:,} CAD")
+        except Exception as e:
+            tg_send(chat_id, f"❌ Erreur Excel: {str(e)}")
+
+    elif cdata == 'confirm_pdf':
+        d = user_data.get(uid)
+        if not d:
+            tg_send(chat_id, "❌ Données introuvables.")
+            return
+        tg_send(chat_id, "⏳ Génération du PDF...")
+        try:
+            buf = generate_pdf(d)
+            fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.pdf"
+            tg_send_doc(chat_id, buf, fname, f"✅ PDF généré!\n💰 ${d['price']:,} CAD")
+        except Exception as e:
+            tg_send(chat_id, f"❌ Erreur PDF: {str(e)}")
+
+    elif cdata == 'change_price':
+        if uid not in user_data:
+            user_data[uid] = {}
+        user_data[uid]['waiting_price'] = True
+        tg_send(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
 
 # ── Flask Routes ─────────────────────────────────────────────────────
 @app.route('/')
@@ -223,172 +328,60 @@ def api_pdf():
     filename = f"{data.get('odsNum','ODS')}_{data.get('name','client').replace(' ','-')}.pdf"
     return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=filename)
 
-# ── Telegram Bot (Webhook) ───────────────────────────────────────────
 @app.route('/webhook/telegram', methods=['POST'])
 def webhook():
-    import requests as req
     data = request.json
     if not data:
         return 'ok'
 
     msg = data.get('message', {})
     callback = data.get('callback_query', {})
-    chat_id = msg.get('chat', {}).get('id') or callback.get('message', {}).get('chat', {}).get('id')
 
-    def send(text, keyboard=None):
-        payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}
-        if keyboard:
-            payload['reply_markup'] = {'inline_keyboard': keyboard}
-        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json=payload)
-
-    def send_file_tg(filepath, filename, caption):
-        with open(filepath, 'rb') as f:
-            req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendDocument',
-                data={'chat_id': chat_id, 'caption': caption},
-                files={'document': (filename, f)})
-
-    # Callback query
     if callback:
         uid = callback['from']['id']
+        chat_id = callback['message']['chat']['id']
         cdata = callback.get('data','')
-        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
-                 json={'callback_query_id': callback['id']})
-
-        if cdata == 'confirm_excel':
-            d = user_data.get(uid)
-            if not d:
-                send("❌ Données introuvables. Envoyez une nouvelle photo.")
-                return 'ok'
-            try:
-                send("⏳ Génération du fichier Excel...")
-                out = generate_excel(d)
-                fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.xlsx"
-                send_file_tg(out, fname, f"✅ Excel généré!\n💰 ${d['price']:,} CAD")
-                os.remove(out)
-            except Exception as e:
-                send(f"❌ Erreur: {str(e)}")
-
-        elif cdata == 'confirm_pdf':
-            d = user_data.get(uid)
-            if not d:
-                send("❌ Données introuvables.")
-                return 'ok'
-            try:
-                send("⏳ Génération du PDF...")
-                buf = generate_pdf(d)
-                fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.pdf"
-                buf.seek(0)
-                import requests as req2
-                req2.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendDocument',
-                    data={'chat_id': chat_id, 'caption': f"✅ PDF généré!\n💰 ${d['price']:,} CAD"},
-                    files={'document': (fname, buf)})
-            except Exception as e:
-                send(f"❌ Erreur: {str(e)}")
-
-        elif cdata == 'change_price':
-            user_data[uid] = user_data.get(uid, {})
-            user_data[uid]['waiting_price'] = True
-            send("💰 Entrez le nouveau prix (ex: 3500):")
-
+        callback_id = callback['id']
+        t = threading.Thread(target=process_callback, args=(chat_id, uid, cdata, callback_id))
+        t.daemon = True
+        t.start()
         return 'ok'
 
-    # Text message
-    if msg.get('text'):
+    if msg:
         uid = msg['from']['id']
-        text = msg['text']
+        chat_id = msg['chat']['id']
 
-        if text == '/start':
-            send("👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client\n(SoumissionRenovation, courriel, formulaire)")
-            return 'ok'
+        if msg.get('text'):
+            text = msg['text']
+            if text == '/start':
+                tg_send(chat_id, "👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client\n(SoumissionRenovation, courriel, formulaire)")
+                return 'ok'
+            d = user_data.get(uid, {})
+            if d.get('waiting_price'):
+                try:
+                    price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
+                    d['price'] = price
+                    d['waiting_price'] = False
+                    user_data[uid] = d
+                    keyboard = [
+                        [{'text':'📊 Excel', 'callback_data':'confirm_excel'},
+                         {'text':'📄 PDF', 'callback_data':'confirm_pdf'}],
+                    ]
+                    tg_send(chat_id, f"💰 Prix mis à jour: ${price:,} CAD\n\nChoisissez le format:", keyboard)
+                except:
+                    tg_send(chat_id, "❌ Entrez un nombre valide (ex: 3500)")
+            else:
+                tg_send(chat_id, "📸 Envoyez une photo du client pour commencer.")
 
-        d = user_data.get(uid, {})
-        if d.get('waiting_price'):
-            try:
-                price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
-                d['price'] = price
-                d['waiting_price'] = False
-                user_data[uid] = d
-                keyboard = [
-                    [{'text':'📊 Excel', 'callback_data':'confirm_excel'},
-                     {'text':'📄 PDF', 'callback_data':'confirm_pdf'}],
-                    [{'text':'✏️ Changer prix', 'callback_data':'change_price'}]
-                ]
-                send(f"💰 Prix mis à jour: ${price:,} CAD\n\nChoisissez le format:", keyboard)
-            except:
-                send("❌ Entrez un nombre valide (ex: 3500)")
-        else:
-            send("📸 Envoyez une photo du client pour commencer.")
-
-    # Photo
-    if msg.get('photo'):
-        uid = msg['from']['id']
-        send("🔍 Extraction des informations en cours...")
-        try:
-            photo = msg['photo'][-1]
-            file_id = photo['file_id']
-            import requests as req2
-            r = req2.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}')
-            fpath = r.json()['result']['file_path']
-            img_r = req2.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}')
-            img_b64 = base64.b64encode(img_r.content).decode()
-
-            info = extract_info(img_b64)
-            yr = datetime.now().strftime('%y')
-            ods_num = f"ODS{yr}-{random.randint(100,999)}"
-            price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
-
-            user_data[uid] = {
-                'name': info.get('client_name',''),
-                'phone': info.get('phone',''),
-                'email': info.get('email',''),
-                'addr': info.get('address',''),
-                'ref': info.get('soumission_ref',''),
-                'desc': info.get('project_description',''),
-                'type': info.get('property_type',''),
-                'service': info.get('suggested_service','Analyse structurale générale'),
-                'price': price,
-                'ods_num': ods_num,
-                'odsNum': ods_num,
-                'date': datetime.now().strftime('%Y-%m-%d'),
-            }
-
-            text = (
-                f"✅ *Informations extraites*\n\n"
-                f"👤 *Client:* {info.get('client_name','—')}\n"
-                f"📍 *Adresse:* {info.get('address','—')}\n"
-                f"📞 *Tél:* {info.get('phone','—')}\n"
-                f"📧 *Courriel:* {info.get('email','—')}\n"
-                f"🏠 *Type:* {info.get('property_type','—')}\n"
-                f"🔢 *Réf:* {info.get('soumission_ref','—')}\n\n"
-                f"🔧 *Service:* {info.get('suggested_service','—')}\n"
-                f"💰 *Prix suggéré:* ${price:,} CAD\n"
-                f"📄 *N° ODS:* {ods_num}\n\n"
-                f"Choisissez le format:"
-            )
-            keyboard = [
-                [{'text':'📊 Excel', 'callback_data':'confirm_excel'},
-                 {'text':'📄 PDF', 'callback_data':'confirm_pdf'}],
-                [{'text':'✏️ Changer prix', 'callback_data':'change_price'}]
-            ]
-            send(text, keyboard)
-        except Exception as e:
-            send(f"❌ Erreur: {str(e)}")
+        elif msg.get('photo'):
+            file_id = msg['photo'][-1]['file_id']
+            tg_send(chat_id, "🔍 Extraction des informations en cours...")
+            t = threading.Thread(target=process_photo, args=(chat_id, uid, file_id))
+            t.daemon = True
+            t.start()
 
     return 'ok'
 
-def setup_webhook():
-    import requests as req
-    import time
-    time.sleep(3)
-    url = os.environ.get('RAILWAY_PUBLIC_DOMAIN','')
-    if url:
-        webhook_url = f"https://{url}/webhook/{BOT_TOKEN}"
-        r = req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
-                     json={'url': webhook_url})
-        logger.info(f"Webhook set: {r.json()}")
-
 if __name__ == '__main__':
-    t = threading.Thread(target=setup_webhook, daemon=True)
-    t.start()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
