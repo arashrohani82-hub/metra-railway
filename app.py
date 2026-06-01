@@ -1,4 +1,4 @@
-import os, json, io, shutil, base64, logging, threading
+import os, json, io, shutil, base64, logging
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
 import anthropic
@@ -11,11 +11,14 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 import openpyxl
 import random
 import requests as req
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+executor = ThreadPoolExecutor(max_workers=10)
+
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
@@ -46,22 +49,22 @@ PRICES = {
 
 user_data = {}
 
-def tg_send(chat_id, text, keyboard=None):
+def tg(chat_id, text, keyboard=None):
     payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}
     if keyboard:
         payload['reply_markup'] = {'inline_keyboard': keyboard}
     try:
-        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json=payload, timeout=10)
+        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json=payload, timeout=15)
     except Exception as e:
-        logger.error(f"Send error: {e}")
+        logger.error(f"tg error: {e}")
 
-def tg_send_doc(chat_id, data, filename, caption):
+def tg_doc(chat_id, data, filename, caption):
     try:
         req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendDocument',
             data={'chat_id': chat_id, 'caption': caption},
             files={'document': (filename, data)}, timeout=30)
     except Exception as e:
-        logger.error(f"Send doc error: {e}")
+        logger.error(f"tg_doc error: {e}")
 
 def draw_header_footer(canvas, doc):
     canvas.saveState()
@@ -187,7 +190,6 @@ def generate_pdf(data):
 
 def generate_excel(data):
     template = os.path.join(BASE, 'template.xlsx')
-    output_buf = io.BytesIO()
     out_path = f"/tmp/{data['odsNum']}.xlsx"
     shutil.copy(template, out_path)
     wb = openpyxl.load_workbook(out_path)
@@ -205,35 +207,33 @@ def generate_excel(data):
     ws['F48'] = '=SUM(F47:F47)'
     wb.save(out_path)
     with open(out_path, 'rb') as f:
-        output_buf = io.BytesIO(f.read())
+        buf = io.BytesIO(f.read())
     os.remove(out_path)
-    output_buf.seek(0)
-    return output_buf
+    buf.seek(0)
+    return buf
 
-def extract_info(img_b64, mime='image/jpeg'):
-    prompt = """This is a client document (SoumissionRenovation.ca screenshot, email, or form).
-Extract all client and project information. Return ONLY a valid JSON object:
-{"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
-For suggested_service choose from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale".
-suggested_price: realistic CAD integer. ONLY JSON."""
-    response = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=1000,
-        messages=[{"role":"user","content":[
-            {"type":"image","source":{"type":"base64","media_type":mime,"data":img_b64}},
-            {"type":"text","text":prompt}
-        ]}]
-    )
-    text = ''.join(b.text for b in response.content if hasattr(b,'text'))
-    return json.loads(text.replace('```json','').replace('```','').strip())
-
-def process_photo(chat_id, uid, file_id):
+def do_extract(chat_id, uid, file_id):
     try:
         r = req.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}', timeout=10)
         fpath = r.json()['result']['file_path']
-        img_r = req.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}', timeout=10)
+        img_r = req.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}', timeout=15)
         img_b64 = base64.b64encode(img_r.content).decode()
 
-        info = extract_info(img_b64)
+        prompt = """Extract client info from this document. Return ONLY JSON:
+{"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
+suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
+suggested_price: CAD integer. ONLY JSON."""
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=800,
+            messages=[{"role":"user","content":[
+                {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":img_b64}},
+                {"type":"text","text":prompt}
+            ]}]
+        )
+        text = ''.join(b.text for b in response.content if hasattr(b,'text'))
+        info = json.loads(text.replace('```json','').replace('```','').strip())
+
         yr = datetime.now().strftime('%y')
         ods_num = f"ODS{yr}-{random.randint(100,999)}"
         price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
@@ -243,73 +243,56 @@ def process_photo(chat_id, uid, file_id):
             'phone': info.get('phone',''),
             'email': info.get('email',''),
             'addr': info.get('address',''),
-            'ref': info.get('soumission_ref',''),
             'desc': info.get('project_description',''),
-            'type': info.get('property_type',''),
-            'service': info.get('suggested_service','Analyse structurale générale'),
+            'service': info.get('suggested_service',''),
             'price': price,
             'odsNum': ods_num,
             'date': datetime.now().strftime('%Y-%m-%d'),
         }
 
-        text = (
-            f"✅ *Informations extraites*\n\n"
-            f"👤 *Client:* {info.get('client_name','—')}\n"
-            f"📍 *Adresse:* {info.get('address','—')}\n"
-            f"📞 *Tél:* {info.get('phone','—')}\n"
-            f"📧 *Courriel:* {info.get('email','—')}\n"
-            f"🏠 *Type:* {info.get('property_type','—')}\n\n"
-            f"🔧 *Service:* {info.get('suggested_service','—')}\n"
-            f"💰 *Prix suggéré:* ${price:,} CAD\n"
-            f"📄 *N° ODS:* {ods_num}\n\n"
-            f"Choisissez le format:"
-        )
-        keyboard = [
-            [{'text':'📊 Excel', 'callback_data':'confirm_excel'},
-             {'text':'📄 PDF', 'callback_data':'confirm_pdf'}],
-            [{'text':'✏️ Changer prix', 'callback_data':'change_price'}]
+        msg = (f"✅ *Informations extraites*\n\n"
+               f"👤 {info.get('client_name','—')}\n"
+               f"📍 {info.get('address','—')}\n"
+               f"📞 {info.get('phone','—')}\n"
+               f"📧 {info.get('email','—')}\n"
+               f"🏠 {info.get('property_type','—')}\n\n"
+               f"🔧 {info.get('suggested_service','—')}\n"
+               f"💰 ${price:,} CAD\n"
+               f"📄 {ods_num}\n\n"
+               f"Format?")
+        kb = [
+            [{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}],
+            [{'text':'✏️ Changer prix','callback_data':'price'}]
         ]
-        tg_send(chat_id, text, keyboard)
+        tg(chat_id, msg, kb)
     except Exception as e:
-        tg_send(chat_id, f"❌ Erreur: {str(e)}")
+        logger.error(f"Extract error: {e}")
+        tg(chat_id, f"❌ Erreur: {str(e)}")
 
-def process_callback(chat_id, uid, cdata, callback_id):
-    req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
-             json={'callback_query_id': callback_id}, timeout=5)
+def do_excel(chat_id, uid):
+    d = user_data.get(uid)
+    if not d:
+        tg(chat_id, "❌ Envoyez une nouvelle photo.")
+        return
+    try:
+        buf = generate_excel(d)
+        fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.xlsx"
+        tg_doc(chat_id, buf, fname, f"✅ Excel — ${d['price']:,} CAD")
+    except Exception as e:
+        tg(chat_id, f"❌ {str(e)}")
 
-    if cdata == 'confirm_excel':
-        d = user_data.get(uid)
-        if not d:
-            tg_send(chat_id, "❌ Données introuvables. Envoyez une nouvelle photo.")
-            return
-        tg_send(chat_id, "⏳ Génération du fichier Excel...")
-        try:
-            buf = generate_excel(d)
-            fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.xlsx"
-            tg_send_doc(chat_id, buf, fname, f"✅ Excel généré!\n💰 ${d['price']:,} CAD")
-        except Exception as e:
-            tg_send(chat_id, f"❌ Erreur Excel: {str(e)}")
+def do_pdf(chat_id, uid):
+    d = user_data.get(uid)
+    if not d:
+        tg(chat_id, "❌ Envoyez une nouvelle photo.")
+        return
+    try:
+        buf = generate_pdf(d)
+        fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.pdf"
+        tg_doc(chat_id, buf, fname, f"✅ PDF — ${d['price']:,} CAD")
+    except Exception as e:
+        tg(chat_id, f"❌ {str(e)}")
 
-    elif cdata == 'confirm_pdf':
-        d = user_data.get(uid)
-        if not d:
-            tg_send(chat_id, "❌ Données introuvables.")
-            return
-        tg_send(chat_id, "⏳ Génération du PDF...")
-        try:
-            buf = generate_pdf(d)
-            fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.pdf"
-            tg_send_doc(chat_id, buf, fname, f"✅ PDF généré!\n💰 ${d['price']:,} CAD")
-        except Exception as e:
-            tg_send(chat_id, f"❌ Erreur PDF: {str(e)}")
-
-    elif cdata == 'change_price':
-        if uid not in user_data:
-            user_data[uid] = {}
-        user_data[uid]['waiting_price'] = True
-        tg_send(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
-
-# ── Flask Routes ─────────────────────────────────────────────────────
 @app.route('/')
 def index():
     with open(os.path.join(BASE, 'index.html'), 'r', encoding='utf-8') as f:
@@ -318,8 +301,16 @@ def index():
 @app.route('/api/extract', methods=['POST'])
 def api_extract():
     data = request.json
-    info = extract_info(data.get('image'), data.get('mime','image/jpeg'))
-    return jsonify(info)
+    prompt = """Extract client info. Return ONLY JSON: {"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}"""
+    response = client.messages.create(
+        model="claude-sonnet-4-6", max_tokens=800,
+        messages=[{"role":"user","content":[
+            {"type":"image","source":{"type":"base64","media_type":data.get('mime','image/jpeg'),"data":data.get('image')}},
+            {"type":"text","text":prompt}
+        ]}]
+    )
+    text = ''.join(b.text for b in response.content if hasattr(b,'text'))
+    return jsonify(json.loads(text.replace('```json','').replace('```','').strip()))
 
 @app.route('/api/generate-pdf', methods=['POST'])
 def api_pdf():
@@ -335,16 +326,22 @@ def webhook():
         return 'ok'
 
     msg = data.get('message', {})
-    callback = data.get('callback_query', {})
+    cb = data.get('callback_query', {})
 
-    if callback:
-        uid = callback['from']['id']
-        chat_id = callback['message']['chat']['id']
-        cdata = callback.get('data','')
-        callback_id = callback['id']
-        t = threading.Thread(target=process_callback, args=(chat_id, uid, cdata, callback_id))
-        t.daemon = True
-        t.start()
+    if cb:
+        uid = cb['from']['id']
+        chat_id = cb['message']['chat']['id']
+        cdata = cb.get('data','')
+        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+                 json={'callback_query_id': cb['id']}, timeout=5)
+        if cdata == 'xl':
+            executor.submit(do_excel, chat_id, uid)
+        elif cdata == 'pdf':
+            executor.submit(do_pdf, chat_id, uid)
+        elif cdata == 'price':
+            user_data[uid] = user_data.get(uid, {})
+            user_data[uid]['waiting_price'] = True
+            tg(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
         return 'ok'
 
     if msg:
@@ -354,7 +351,7 @@ def webhook():
         if msg.get('text'):
             text = msg['text']
             if text == '/start':
-                tg_send(chat_id, "👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client\n(SoumissionRenovation, courriel, formulaire)")
+                tg(chat_id, "👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client")
                 return 'ok'
             d = user_data.get(uid, {})
             if d.get('waiting_price'):
@@ -363,22 +360,17 @@ def webhook():
                     d['price'] = price
                     d['waiting_price'] = False
                     user_data[uid] = d
-                    keyboard = [
-                        [{'text':'📊 Excel', 'callback_data':'confirm_excel'},
-                         {'text':'📄 PDF', 'callback_data':'confirm_pdf'}],
-                    ]
-                    tg_send(chat_id, f"💰 Prix mis à jour: ${price:,} CAD\n\nChoisissez le format:", keyboard)
+                    kb = [[{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}]]
+                    tg(chat_id, f"💰 ${price:,} CAD — Format?", kb)
                 except:
-                    tg_send(chat_id, "❌ Entrez un nombre valide (ex: 3500)")
+                    tg(chat_id, "❌ Nombre invalide (ex: 3500)")
             else:
-                tg_send(chat_id, "📸 Envoyez une photo du client pour commencer.")
+                tg(chat_id, "📸 Envoyez une photo du client.")
 
         elif msg.get('photo'):
             file_id = msg['photo'][-1]['file_id']
-            tg_send(chat_id, "🔍 Extraction des informations en cours...")
-            t = threading.Thread(target=process_photo, args=(chat_id, uid, file_id))
-            t.daemon = True
-            t.start()
+            tg(chat_id, "🔍 Extraction en cours...")
+            executor.submit(do_extract, chat_id, uid, file_id)
 
     return 'ok'
 
