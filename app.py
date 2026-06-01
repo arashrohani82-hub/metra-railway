@@ -264,9 +264,13 @@ suggested_price: CAD integer. ONLY JSON."""
             [{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}],
             [{'text':'✏️ Changer prix','callback_data':'price'}]
         ]
+        logger.info(f"Sending result to {chat_id}")
         tg(chat_id, msg, kb)
+        logger.info(f"Result sent to {chat_id}")
     except Exception as e:
+        import traceback
         logger.error(f"Extract error: {e}")
+        logger.error(traceback.format_exc())
         tg(chat_id, f"❌ Erreur: {str(e)}")
 
 def do_excel(chat_id, uid):
