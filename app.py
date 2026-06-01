@@ -50,11 +50,15 @@ PRICES = {
 user_data = {}
 
 def tg(chat_id, text, keyboard=None):
-    payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}
+    import urllib.request, urllib.parse
+    payload = {'chat_id': str(chat_id), 'text': text, 'parse_mode': 'Markdown'}
     if keyboard:
-        payload['reply_markup'] = {'inline_keyboard': keyboard}
+        payload['reply_markup'] = json.dumps({'inline_keyboard': keyboard})
     try:
-        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json=payload, timeout=15)
+        data = urllib.parse.urlencode(payload).encode()
+        url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+        r2 = urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=15)
+        logger.info(f"tg sent: {r2.status}")
     except Exception as e:
         logger.error(f"tg error: {e}")
 
