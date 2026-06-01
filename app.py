@@ -50,7 +50,7 @@ PRICES = {
 user_data = {}
 
 def tg(chat_id, text, keyboard=None):
-    payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}
+    payload = {'chat_id': chat_id, 'text': text}
     if keyboard:
         payload['reply_markup'] = {'inline_keyboard': keyboard}
     try:
