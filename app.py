@@ -343,10 +343,19 @@ def webhook():
         cdata = cb.get('data','')
         req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
                  json={'callback_query_id': cb['id']}, timeout=5)
+        logger.info(f"Callback: {cdata} from {uid}, user_data keys: {list(user_data.keys())}")
         if cdata == 'xl':
-            executor.submit(do_excel, chat_id, uid)
+            if uid not in user_data:
+                tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
+            else:
+                tg(chat_id, "⏳ Génération Excel...")
+                executor.submit(do_excel, chat_id, uid)
         elif cdata == 'pdf':
-            executor.submit(do_pdf, chat_id, uid)
+            if uid not in user_data:
+                tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
+            else:
+                tg(chat_id, "⏳ Génération PDF...")
+                executor.submit(do_pdf, chat_id, uid)
         elif cdata == 'price':
             user_data[uid] = user_data.get(uid, {})
             user_data[uid]['waiting_price'] = True
