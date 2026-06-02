@@ -49,6 +49,29 @@ PRICES = {
 
 user_data = {}
 
+# ── Persistent storage (survives Railway restarts) ──
+DATA_FILE = '/tmp/user_data.json'
+
+def load_user_data():
+    global user_data
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r') as f:
+                user_data = json.load(f)
+            logger.info(f"Loaded {len(user_data)} sessions from disk")
+    except Exception as e:
+        logger.warning(f"load_user_data error: {e}")
+        user_data = {}
+
+def save_user_data():
+    try:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(user_data, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"save_user_data error: {e}")
+
+load_user_data()
+
 def tg(chat_id, text, keyboard=None):
     payload = {'chat_id': chat_id, 'text': text}
     if keyboard:
@@ -254,6 +277,7 @@ suggested_price: CAD integer. ONLY JSON."""
             'odsNum': ods_num,
             'date': datetime.now().strftime('%Y-%m-%d'),
         }
+        save_user_data()
 
         msg = (f"✅ *Informations extraites*\n\n"
                f"👤 {info.get('client_name','—')}\n"
@@ -378,6 +402,7 @@ def webhook():
                     d['price'] = price
                     d['waiting_price'] = False
                     user_data[uid] = d
+                    save_user_data()
                     kb = [[{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}]]
                     tg(chat_id, f"💰 ${price:,} CAD — Format?", kb)
                 except:
