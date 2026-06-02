@@ -375,67 +375,72 @@ def api_pdf():
     filename = f"{data.get('odsNum','ODS')}_{data.get('name','client').replace(' ','-')}.pdf"
     return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=filename)
 
+def handle_update(data):
+    """Process Telegram update in background thread — webhook returns immediately"""
+    try:
+        msg = data.get('message', {})
+        cb = data.get('callback_query', {})
+
+        if cb:
+            uid = str(cb['from']['id'])
+            chat_id = cb['message']['chat']['id']
+            cdata = cb.get('data', '')
+            # Answer callback immediately to remove loading spinner
+            try:
+                req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+                         json={'callback_query_id': cb['id']}, timeout=3)
+            except:
+                pass
+            logger.info(f"CB: {cdata} uid={uid} has_data={uid in user_data} keys={list(user_data.keys())}")
+            if cdata in ('xl', 'pdf'):
+                if uid not in user_data:
+                    tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
+                elif cdata == 'xl':
+                    do_excel(chat_id, uid)
+                else:
+                    do_pdf(chat_id, uid)
+            elif cdata == 'price':
+                d = user_data.get(uid, {})
+                d['waiting_price'] = True
+                user_data[uid] = d
+                tg(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
+
+        elif msg:
+            uid = str(msg['from']['id'])
+            chat_id = msg['chat']['id']
+            if msg.get('text'):
+                text = msg['text']
+                if text == '/start':
+                    tg(chat_id, "👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client")
+                    return
+                d = user_data.get(uid, {})
+                if d.get('waiting_price'):
+                    try:
+                        price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
+                        d['price'] = price
+                        d['waiting_price'] = False
+                        user_data[uid] = d
+                        save_user_data()
+                        kb = [[{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}]]
+                        tg(chat_id, f"💰 ${price:,} CAD — Format?", kb)
+                    except:
+                        tg(chat_id, "❌ Nombre invalide (ex: 3500)")
+                else:
+                    tg(chat_id, "📸 Envoyez une photo du client.")
+            elif msg.get('photo'):
+                file_id = msg['photo'][-1]['file_id']
+                tg(chat_id, "🔍 Extraction en cours...")
+                executor.submit(do_extract, chat_id, uid, file_id)
+    except Exception as e:
+        import traceback
+        logger.error(f"handle_update error: {e}\n{traceback.format_exc()}")
+
 @app.route('/webhook/telegram', methods=['POST'])
 def webhook():
-    data = request.json
-    if not data:
-        return 'ok'
-
-    msg = data.get('message', {})
-    cb = data.get('callback_query', {})
-
-    if cb:
-        uid = str(cb['from']['id'])   # always string key
-        chat_id = cb['message']['chat']['id']
-        cdata = cb.get('data','')
-        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
-                 json={'callback_query_id': cb['id']}, timeout=5)
-        logger.info(f"Callback: {cdata} from uid={uid}, keys={list(user_data.keys())}, has_data={uid in user_data}")
-        if cdata in ('xl', 'pdf'):
-            if uid not in user_data:
-                tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
-            else:
-                if cdata == 'xl':
-                    executor.submit(do_excel, chat_id, uid)
-                else:
-                    executor.submit(do_pdf, chat_id, uid)
-        elif cdata == 'price':
-            d = user_data.get(uid, {})
-            d['waiting_price'] = True
-            user_data[uid] = d
-            tg(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
-        return 'ok'
-
-    if msg:
-        uid = str(msg['from']['id'])   # always string key
-        chat_id = msg['chat']['id']
-
-        if msg.get('text'):
-            text = msg['text']
-            if text == '/start':
-                tg(chat_id, "👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client")
-                return 'ok'
-            d = user_data.get(uid, {})
-            if d.get('waiting_price'):
-                try:
-                    price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
-                    d['price'] = price
-                    d['waiting_price'] = False
-                    user_data[uid] = d
-                    save_user_data()
-                    kb = [[{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}]]
-                    tg(chat_id, f"💰 ${price:,} CAD — Format?", kb)
-                except:
-                    tg(chat_id, "❌ Nombre invalide (ex: 3500)")
-            else:
-                tg(chat_id, "📸 Envoyez une photo du client.")
-
-        elif msg.get('photo'):
-            file_id = msg['photo'][-1]['file_id']
-            tg(chat_id, "🔍 Extraction en cours...")
-            executor.submit(do_extract, chat_id, uid, file_id)
-
-    return 'ok'
+    data = request.get_json(force=True, silent=True)
+    if data:
+        executor.submit(handle_update, data)
+    return 'ok', 200
 
 @app.route('/setup')
 def setup():
