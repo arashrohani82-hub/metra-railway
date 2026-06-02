@@ -216,9 +216,8 @@ def generate_pdf(data):
     story.append(Paragraph(f'Date :  {data.get("date", datetime.now().strftime("%Y-%m-%d"))}', sr))
     story.append(Spacer(1, 5))
     story.append(Paragraph(f'M./Mme {data.get("name") or "—"}', sn))
-    for addr_line in (data.get('addr') or '').split('\n'):
-        if addr_line.strip():
-            story.append(Paragraph('Adresse : ' + addr_line.strip() if addr_line == (data.get('addr') or '').split('\n')[0] else addr_line.strip(), sn))
+    addr_single = ', '.join(l.strip() for l in (data.get('addr') or '').split('\n') if l.strip())
+    story.append(Paragraph('Adresse : ' + (addr_single or '—'), sn))
     story.append(Paragraph(f'Cell.: {data["phone"]}', sn))
     story.append(Paragraph(f'Courriel : {data["email"]}', sn))
     story.append(Spacer(1, 6))
