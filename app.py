@@ -363,7 +363,7 @@ def do_extract_text(chat_id, uid, client_text):
         PROMPT = (
             "Extract client info from this email/text. Return ONLY JSON with these keys: "
             "client_name, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
-            "address format MUST be complete: \"123 Rue Exemple\\nMontréal QC H1A 1A1\\nCanada\" — include street, city, province, postal code, country on separate lines. "
+            "For address: extract ALL components (street, city, province, postal code, country). ""Format: \"123 Rue Exemple\\nMontréal QC H1A 1A1\\nCanada\". ""If postal code missing, infer from city. If province missing, infer from city name. Always end with Canada. "
             "suggested_service must be one of: Analyse structurale generale, Inspection et rapport structural, "
             "Avis d expert stabilisation et renforcement, Enlevement de mur porteur, Inspection des fondations, "
             "Evaluation des fissures et desordres structuraux, Mur de soutenement, Conception structurale complete, "
