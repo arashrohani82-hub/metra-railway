@@ -124,16 +124,28 @@ def ask_next_missing(chat_id, uid):
         save_user_data()
         tg(chat_id, MISSING_QUESTIONS[field])
     elif not d.get('addr_confirmed'):
-        # Confirm address with user
-        addr = (d.get('addr') or '—').replace('\n', ', ')
-        d['waiting_field'] = None
-        user_data[uid] = d
-        save_user_data()
-        kb = [
-            [{'text': '✅ Confirmer', 'callback_data': 'addr_ok'},
-             {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]
-        ]
-        tg(chat_id, "📍 Adresse détectée :\n" + addr + "\n\nCorrect?", kb)
+        addr = (d.get('addr') or '').strip()
+        # Check if address looks complete (has postal code pattern like H1A 1A1)
+        import re
+        has_postal = bool(re.search(r'[A-Z]\d[A-Z]\s*\d[A-Z]\d', addr, re.IGNORECASE))
+        has_street_num = bool(re.search(r'\d', addr))
+        if not addr or not has_postal or not has_street_num:
+            # Incomplete — ask directly
+            d['waiting_field'] = 'addr'
+            user_data[uid] = d
+            save_user_data()
+            tg(chat_id, "📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)")
+        else:
+            # Complete — show confirm buttons
+            addr_display = addr.replace('\n', ', ')
+            d['waiting_field'] = 'addr_confirm'
+            user_data[uid] = d
+            save_user_data()
+            kb = [
+                [{'text': '✅ Confirmer', 'callback_data': 'addr_ok'},
+                 {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]
+            ]
+            tg(chat_id, "📍 Adresse détectée :\n" + addr_display + "\n\nCorrect?", kb)
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
@@ -553,13 +565,20 @@ def handle_update(data):
                         tg(chat_id, "❌ Nombre invalide (ex: 3500)")
                 elif d.get('waiting_field'):
                     field = d['waiting_field']
-                    d[field] = text.strip()
-                    d['waiting_field'] = None
-                    if field == 'addr':
-                        d['addr_confirmed'] = True
-                    user_data[uid] = d
-                    save_user_data()
-                    ask_next_missing(chat_id, uid)
+                    if field == 'addr_confirm':
+                        # Must use buttons — ignore text
+                        addr_display = (d.get('addr') or '').replace('\n', ', ')
+                        kb = [[{'text': '✅ Confirmer', 'callback_data': 'addr_ok'},
+                               {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]]
+                        tg(chat_id, "📍 " + addr_display + "\n\nUtilisez les boutons:", kb)
+                    else:
+                        d[field] = text.strip()
+                        d['waiting_field'] = None
+                        if field == 'addr':
+                            d['addr_confirmed'] = True
+                        user_data[uid] = d
+                        save_user_data()
+                        ask_next_missing(chat_id, uid)
                 else:
                     if len(text) > 50:
                         tg(chat_id, "🔍 Extraction en cours...")
