@@ -350,12 +350,13 @@ def do_extract_text(chat_id, uid, client_text):
         }
         save_user_data()
 
-        name = info.get('client_name', '—')
-        addr = info.get('address', '—')
-        phone = info.get('phone', '—')
-        email = info.get('email', '—')
-        ptype = info.get('property_type', '—')
-        service = info.get('suggested_service', '—')
+        def s(v): return str(v) if v else '—'
+        name = s(info.get('client_name'))
+        addr = s(info.get('address'))
+        phone = s(info.get('phone'))
+        email = s(info.get('email'))
+        ptype = s(info.get('property_type'))
+        service = s(info.get('suggested_service'))
         msg_out = (
             "✅ *Informations extraites*\n\n"
             "👤 " + name + "\n"
