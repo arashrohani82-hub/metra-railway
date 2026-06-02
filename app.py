@@ -72,11 +72,52 @@ def save_user_data():
 
 load_user_data()
 
+def build_ods_num(d):
+    import datetime as _dt
+    yr = _dt.datetime.now().strftime('%y')
+    num = (d.get('project_num') or '000').zfill(3)
+    addr = (d.get('addr') or '')
+    addr_lines = [l.strip() for l in addr.split('\n') if l.strip()]
+    city_line = addr_lines[1] if len(addr_lines) >= 2 else (addr_lines[0] if addr_lines else '')
+    A = city_line[0].upper() if city_line else 'X'
+    name = (d.get('name') or '')
+    B = name[0].upper() if name else 'X'
+    service = (d.get('service') or '')
+    C = service[0].upper() if service else 'X'
+    return f"ODS{yr}-{num}-{A}{B}{C}"
+
+def build_short_title(d):
+    service = (d.get('service') or '').strip().lower()
+    if 'avis' in service:
+        return 'Avis-expert'
+    if 'inspection des fond' in service:
+        return 'Fondations'
+    if 'inspection' in service:
+        return 'Inspection'
+    if 'enl' in service or 'mur porteur' in service:
+        return 'Mur-porteur'
+    if 'fissure' in service or 'valuation' in service:
+        return 'Fissures'
+    if 'soutenement' in service or 'sout' in service:
+        return 'Soutenement'
+    if 'sous-sol' in service or 'sous sol' in service:
+        return 'Sous-sol'
+    if 'conception' in service:
+        return 'Conception'
+    if 'amenagement' in service or 'ménagement' in service:
+        return 'Reamenagement'
+    if 'analyse' in service:
+        return 'Analyse-struct'
+    words = (d.get('service') or '').split()
+    return '-'.join(words[:2]) if words else 'Mandat'
+
+
 MISSING_QUESTIONS = {
     'name':  '✏️ Nom du client?',
     'phone': '📞 Numéro de téléphone?',
     'email': '📧 Adresse courriel?',
     'addr':  '📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)',
+    'project_num': '🔢 Numéro du projet? (ex: 062)',
     'delai': '⏱️ Délai estimé (jours ouvrables)? (ex: 8)',
 }
 
@@ -90,7 +131,9 @@ def get_missing_fields(d):
 
 def show_format_buttons(chat_id, d):
     price = d.get('price', 0)
-    ods = d.get('odsNum', '')
+    ods = build_ods_num(d) + '-' + build_short_title(d)
+    d['odsNum'] = ods
+    save_user_data()
     lines = [
         "✅ *Prêt à générer*",
         "",
