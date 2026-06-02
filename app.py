@@ -390,7 +390,7 @@ def do_excel(chat_id, uid):
         logger.info(f"Generating Excel for {d.get('name','?')}")
         tg(chat_id, "⏳ Génération Excel...")
         buf = generate_excel(d)
-        fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.xlsx"
+        fname = "{}_{}. xlsx".format(d.get('odsNum','ODS'), (d.get('name') or 'client').replace(' ','-')).replace(' ','')
         logger.info(f"Excel generated, sending {fname}")
         tg_doc(chat_id, buf, fname, f"✅ Excel — ${d['price']:,} CAD")
     except Exception as e:
@@ -410,7 +410,7 @@ def do_pdf(chat_id, uid):
         logger.info(f"Generating PDF for {d.get('name','?')}")
         tg(chat_id, "⏳ Génération PDF...")
         buf = generate_pdf(d)
-        fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.pdf"
+        fname = "{}_{}.pdf".format(d.get('odsNum','ODS'), (d.get('name') or 'client').replace(' ','-'))
         logger.info(f"PDF generated, sending {fname}")
         tg_doc(chat_id, buf, fname, f"✅ PDF — ${d['price']:,} CAD")
     except Exception as e:
