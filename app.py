@@ -76,16 +76,23 @@ MISSING_QUESTIONS = {
     'name':  '✏️ Nom du client?',
     'phone': '📞 Numéro de téléphone?',
     'email': '📧 Adresse courriel?',
-    'addr':  '📍 Adresse du projet? (ex: 123 Rue Exemple\nMontréal QC H1A 1A1\nCanada)',
+    'addr':  '📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)',
     'delai': '⏱️ Délai estimé (jours ouvrables)? (ex: 8)',
 }
 
 def get_missing_fields(d):
     missing = []
-    for key in ['name', 'phone', 'email', 'addr']:
+    for key in ['name', 'phone', 'email']:
         val = (d.get(key) or '').strip()
         if not val or val in ('-', 'None'):
             missing.append(key)
+    # Check address completeness: needs city + postal code
+    addr = (d.get('addr') or '').strip()
+    addr_lines = [l.strip() for l in addr.split('\n') if l.strip()]
+    has_postal = any(len(l) >= 6 and any(c.isdigit() for c in l) for l in addr_lines)
+    has_city = len(addr_lines) >= 2
+    if not addr or addr in ('-', 'None') or not has_postal or not has_city:
+        missing.append('addr')
     return missing
 
 def show_format_buttons(chat_id, d):
