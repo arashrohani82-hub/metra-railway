@@ -148,7 +148,7 @@ def generate_pdf(data):
 
     story.append(Paragraph(f'Date :  {data.get("date", datetime.now().strftime("%Y-%m-%d"))}', sr))
     story.append(Spacer(1, 5))
-    story.append(Paragraph(f'M./Mme {data["name"]}', sn))
+    story.append(Paragraph(f'M./Mme {data.get("name") or "—"}', sn))
     story.append(Paragraph(f'Adresse: :{data["addr"]}', sn))
     story.append(Paragraph(f'Cell.: {data["phone"]}', sn))
     story.append(Paragraph(f'Courriel : {data["email"]}', sn))
@@ -231,11 +231,11 @@ def generate_excel(data):
     shutil.copy(template, out_path)
     wb = openpyxl.load_workbook(out_path)
     ws = wb['ODS']
-    ws['B7'] = f"M./Mme {data['name']}"
+    ws['B7'] = f"M./Mme {data.get('name') or '—'}"
     ws['B8'] = f"Adresse: :{data['addr']}"
     ws['B9'] = f"Cell.: {data['phone']}"
     ws['B10'] = f"Courriel : {data['email']}"
-    ws['B12'] = f"{data['odsNum']}-{data['name'].replace(' ','-')}"
+    ws['B12'] = f"{data.get('odsNum','ODS')}-{(data.get('name') or 'client').replace(' ','-')}"
     ws['B47'] = data.get('desc', data.get('service',''))
     ws['C47'] = 'Forfait'
     ws['D47'] = 1
