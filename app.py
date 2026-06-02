@@ -312,6 +312,59 @@ suggested_price: CAD integer. ONLY JSON."""
         logger.error(traceback.format_exc())
         tg(chat_id, f"❌ Erreur: {str(e)}")
 
+def do_extract_text(chat_id, uid, text):
+    uid = str(uid)
+    try:
+        prompt = f"""Extract client info from this email/text. Return ONLY JSON:
+{{"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}}
+suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
+suggested_price: CAD integer based on complexity. ONLY JSON.
+
+Text:
+{text}"""
+        response = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=800,
+            messages=[{{"role":"user","content":prompt}}]
+        )
+        result = ''.join(b.text for b in response.content if hasattr(b,'text'))
+        info = json.loads(result.replace('```json','').replace('```','').strip())
+
+        yr = datetime.now().strftime('%y')
+        ods_num = f"ODS{{yr}}-{{random.randint(100,999)}}"
+        price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
+
+        user_data[uid] = {{
+            'name': info.get('client_name',''),
+            'phone': info.get('phone',''),
+            'email': info.get('email',''),
+            'addr': info.get('address',''),
+            'desc': info.get('project_description',''),
+            'service': info.get('suggested_service',''),
+            'price': price,
+            'odsNum': ods_num,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+        }}
+        save_user_data()
+
+        msg_out = (f"✅ *Informations extraites*\n\n"
+                   f"👤 {{info.get('client_name','—')}}\n"
+                   f"📍 {{info.get('address','—')}}\n"
+                   f"📞 {{info.get('phone','—')}}\n"
+                   f"📧 {{info.get('email','—')}}\n"
+                   f"🏠 {{info.get('property_type','—')}}\n\n"
+                   f"🔧 {{info.get('suggested_service','—')}}\n"
+                   f"💰 ${{price:,}} CAD\n"
+                   f"📄 {{ods_num}}\n\nFormat?")
+        kb = [
+            [{{'text':'📊 Excel','callback_data':'xl'}},{{'text':'📄 PDF','callback_data':'pdf'}}],
+            [{{'text':'✏️ Changer prix','callback_data':'price'}}]
+        ]
+        tg(chat_id, msg_out, kb)
+    except Exception as e:
+        import traceback
+        logger.error(f"do_extract_text error: {{e}}\n{{traceback.format_exc()}}")
+        tg(chat_id, f"❌ Erreur extraction: {{str(e)}}")
+
 def do_excel(chat_id, uid):
     uid = str(uid)
     d = user_data.get(uid)
@@ -429,7 +482,12 @@ def handle_update(data):
                     except:
                         tg(chat_id, "❌ Nombre invalide (ex: 3500)")
                 else:
-                    tg(chat_id, "📸 Envoyez une photo du client.")
+                    # Long text = client email/request → extract info
+                    if len(text) > 50:
+                        tg(chat_id, "🔍 Extraction en cours...")
+                        executor.submit(do_extract_text, chat_id, uid, text)
+                    else:
+                        tg(chat_id, "📸 Envoyez une photo ou collez le texte du client.")
             elif msg.get('photo'):
                 file_id = msg['photo'][-1]['file_id']
                 tg(chat_id, "🔍 Extraction en cours...")
