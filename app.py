@@ -76,7 +76,7 @@ MISSING_QUESTIONS = {
     'name':  '✏️ Nom du client?',
     'phone': '📞 Numéro de téléphone?',
     'email': '📧 Adresse courriel?',
-    'addr':  '📍 Adresse du projet?',
+    'addr':  '📍 Adresse du projet? (ex: 123 Rue Exemple\nMontréal QC H1A 1A1\nCanada)',
     'delai': '⏱️ Délai estimé (jours ouvrables)? (ex: 8)',
 }
 
@@ -361,6 +361,7 @@ def do_extract_text(chat_id, uid, client_text):
         PROMPT = (
             "Extract client info from this email/text. Return ONLY JSON with these keys: "
             "client_name, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
+            "address format MUST be complete: \"123 Rue Exemple\\nMontréal QC H1A 1A1\\nCanada\" — include street, city, province, postal code, country on separate lines. "
             "suggested_service must be one of: Analyse structurale generale, Inspection et rapport structural, "
             "Avis d expert stabilisation et renforcement, Enlevement de mur porteur, Inspection des fondations, "
             "Evaluation des fissures et desordres structuraux, Mur de soutenement, Conception structurale complete, "
