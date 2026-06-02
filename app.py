@@ -250,6 +250,7 @@ def generate_excel(data):
     return buf
 
 def do_extract(chat_id, uid, file_id):
+    uid = str(uid)  # ensure string key
     try:
         r = req.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}', timeout=10)
         fpath = r.json()['result']['file_path']
@@ -312,6 +313,7 @@ suggested_price: CAD integer. ONLY JSON."""
         tg(chat_id, f"❌ Erreur: {str(e)}")
 
 def do_excel(chat_id, uid):
+    uid = str(uid)
     d = user_data.get(uid)
     logger.info(f"do_excel called: uid={uid}, data={d is not None}")
     if not d:
@@ -331,6 +333,7 @@ def do_excel(chat_id, uid):
         tg(chat_id, f"❌ Erreur Excel: {str(e)}")
 
 def do_pdf(chat_id, uid):
+    uid = str(uid)
     d = user_data.get(uid)
     logger.info(f"do_pdf called: uid={uid}, data={d is not None}")
     if not d:
