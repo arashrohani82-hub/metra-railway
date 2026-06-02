@@ -437,6 +437,25 @@ def webhook():
 
     return 'ok'
 
+@app.route('/setup')
+def setup():
+    """Register Telegram webhook — call once after deploy"""
+    railway_url = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    if not railway_url:
+        railway_url = 'web-production-e1b99.up.railway.app'
+    webhook_url = f"https://{railway_url}/webhook/telegram"
+    r = req.post(
+        f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
+        json={"url": webhook_url, "allowed_updates": ["message","callback_query"]},
+        timeout=15
+    )
+    info = req.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo', timeout=10)
+    return jsonify({"set": r.json(), "info": info.json()})
+
+@app.route('/status')
+def status():
+    return jsonify({"users": len(user_data), "keys": list(user_data.keys())})
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
