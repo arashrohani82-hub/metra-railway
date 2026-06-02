@@ -385,32 +385,29 @@ def webhook():
     cb = data.get('callback_query', {})
 
     if cb:
-        uid = cb['from']['id']
+        uid = str(cb['from']['id'])   # always string key
         chat_id = cb['message']['chat']['id']
         cdata = cb.get('data','')
         req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
                  json={'callback_query_id': cb['id']}, timeout=5)
-        logger.info(f"Callback: {cdata} from {uid}, user_data keys: {list(user_data.keys())}")
-        if cdata == 'xl':
+        logger.info(f"Callback: {cdata} from uid={uid}, keys={list(user_data.keys())}, has_data={uid in user_data}")
+        if cdata in ('xl', 'pdf'):
             if uid not in user_data:
                 tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
             else:
-                tg(chat_id, "⏳ Génération Excel...")
-                executor.submit(do_excel, chat_id, uid)
-        elif cdata == 'pdf':
-            if uid not in user_data:
-                tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
-            else:
-                tg(chat_id, "⏳ Génération PDF...")
-                executor.submit(do_pdf, chat_id, uid)
+                if cdata == 'xl':
+                    executor.submit(do_excel, chat_id, uid)
+                else:
+                    executor.submit(do_pdf, chat_id, uid)
         elif cdata == 'price':
-            user_data[uid] = user_data.get(uid, {})
-            user_data[uid]['waiting_price'] = True
+            d = user_data.get(uid, {})
+            d['waiting_price'] = True
+            user_data[uid] = d
             tg(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
         return 'ok'
 
     if msg:
-        uid = msg['from']['id']
+        uid = str(msg['from']['id'])   # always string key
         chat_id = msg['chat']['id']
 
         if msg.get('text'):
