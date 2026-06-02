@@ -209,7 +209,9 @@ def generate_pdf(data):
     story.append(Paragraph(f'Date :  {data.get("date", datetime.now().strftime("%Y-%m-%d"))}', sr))
     story.append(Spacer(1, 5))
     story.append(Paragraph(f'M./Mme {data.get("name") or "—"}', sn))
-    story.append(Paragraph(f'Adresse: :{data["addr"]}', sn))
+    for addr_line in (data.get('addr') or '').split('\n'):
+        if addr_line.strip():
+            story.append(Paragraph('Adresse : ' + addr_line.strip() if addr_line == (data.get('addr') or '').split('\n')[0] else addr_line.strip(), sn))
     story.append(Paragraph(f'Cell.: {data["phone"]}', sn))
     story.append(Paragraph(f'Courriel : {data["email"]}', sn))
     story.append(Spacer(1, 6))
@@ -292,7 +294,7 @@ def generate_excel(data):
     wb = openpyxl.load_workbook(out_path)
     ws = wb['ODS']
     ws['B7'] = f"M./Mme {data.get('name') or '—'}"
-    ws['B8'] = f"Adresse: :{data['addr']}"
+    ws['B8'] = (data.get('addr') or '').replace('\n', ', ')
     ws['B9'] = f"Cell.: {data['phone']}"
     ws['B10'] = f"Courriel : {data['email']}"
     ws['B12'] = f"{data.get('odsNum','ODS')}-{(data.get('name') or 'client').replace(' ','-')}"
