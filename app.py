@@ -146,7 +146,7 @@ def generate_pdf(data):
     pf = f'$ {price:,.2f}'
     story = []
 
-    story.append(Paragraph(f'Date :  {data["date"]}', sr))
+    story.append(Paragraph(f'Date :  {data.get("date", datetime.now().strftime("%Y-%m-%d"))}', sr))
     story.append(Spacer(1, 5))
     story.append(Paragraph(f'M./Mme {data["name"]}', sn))
     story.append(Paragraph(f'Adresse: :{data["addr"]}', sn))
