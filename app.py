@@ -72,6 +72,66 @@ def save_user_data():
 
 load_user_data()
 
+MISSING_QUESTIONS = {
+    'name':  '✏️ Nom du client?',
+    'phone': '📞 Numéro de téléphone?',
+    'email': '📧 Adresse courriel?',
+    'addr':  '📍 Adresse du projet?',
+    'delai': '⏱️ Délai estimé? (ex: 3-5 jours ouvrables)',
+}
+
+def get_missing_fields(d):
+    missing = []
+    for key in ['name', 'phone', 'email', 'addr']:
+        val = (d.get(key) or '').strip()
+        if not val or val in ('-', 'None'):
+            missing.append(key)
+    return missing
+
+def show_format_buttons(chat_id, d):
+    price = d.get('price', 0)
+    ods = d.get('odsNum', '')
+    lines = [
+        "✅ *Prêt à générer*",
+        "",
+        "👤 " + (d.get('name') or '—'),
+        "📍 " + (d.get('addr') or '—'),
+        "📞 " + (d.get('phone') or '—'),
+        "📧 " + (d.get('email') or '—'),
+        "🏠 " + (d.get('property_type') or '—'),
+        "⏱️ " + (d.get('delai') or '—'),
+        "",
+        "🔧 " + (d.get('service') or '—'),
+        "💰 $" + "{:,}".format(price) + " CAD",
+        "📄 " + ods,
+        "",
+        "Format?",
+    ]
+    msg = "\n".join(lines)
+    kb = [
+        [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
+        [{'text': '✏️ Changer prix', 'callback_data': 'price'}],
+    ]
+    tg(chat_id, msg, kb)
+
+def ask_next_missing(chat_id, uid):
+    d = user_data.get(uid, {})
+    missing = get_missing_fields(d)
+    if missing:
+        field = missing[0]
+        d['waiting_field'] = field
+        user_data[uid] = d
+        save_user_data()
+        tg(chat_id, MISSING_QUESTIONS[field])
+    elif not d.get('delai'):
+        d['waiting_field'] = 'delai'
+        user_data[uid] = d
+        save_user_data()
+        tg(chat_id, MISSING_QUESTIONS['delai'])
+    else:
+        show_format_buttons(chat_id, d)
+
+
 def tg(chat_id, text, keyboard=None):
     payload = {'chat_id': chat_id, 'text': text}
     if keyboard:
@@ -288,24 +348,7 @@ suggested_price: CAD integer. ONLY JSON."""
             'date': datetime.now().strftime('%Y-%m-%d'),
         }
         save_user_data()
-
-        msg = (f"✅ *Informations extraites*\n\n"
-               f"👤 {info.get('client_name','—')}\n"
-               f"📍 {info.get('address','—')}\n"
-               f"📞 {info.get('phone','—')}\n"
-               f"📧 {info.get('email','—')}\n"
-               f"🏠 {info.get('property_type','—')}\n\n"
-               f"🔧 {info.get('suggested_service','—')}\n"
-               f"💰 ${price:,} CAD\n"
-               f"📄 {ods_num}\n\n"
-               f"Format?")
-        kb = [
-            [{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}],
-            [{'text':'✏️ Changer prix','callback_data':'price'}]
-        ]
-        logger.info(f"Sending result to {chat_id}")
-        tg(chat_id, msg, kb)
-        logger.info(f"Result sent to {chat_id}")
+        ask_next_missing(chat_id, uid)
     except Exception as e:
         import traceback
         logger.error(f"Extract error: {e}")
@@ -489,14 +532,20 @@ def handle_update(data):
                         price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
                         d['price'] = price
                         d['waiting_price'] = False
+                        d['waiting_field'] = None
                         user_data[uid] = d
                         save_user_data()
-                        kb = [[{'text':'📊 Excel','callback_data':'xl'},{'text':'📄 PDF','callback_data':'pdf'}]]
-                        tg(chat_id, f"💰 ${price:,} CAD — Format?", kb)
+                        show_format_buttons(chat_id, d)
                     except:
                         tg(chat_id, "❌ Nombre invalide (ex: 3500)")
+                elif d.get('waiting_field'):
+                    field = d['waiting_field']
+                    d[field] = text.strip()
+                    d['waiting_field'] = None
+                    user_data[uid] = d
+                    save_user_data()
+                    ask_next_missing(chat_id, uid)
                 else:
-                    # Long text = client email/request → extract info
                     if len(text) > 50:
                         tg(chat_id, "🔍 Extraction en cours...")
                         executor.submit(do_extract_text, chat_id, uid, text)
