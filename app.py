@@ -86,13 +86,6 @@ def get_missing_fields(d):
         val = (d.get(key) or '').strip()
         if not val or val in ('-', 'None'):
             missing.append(key)
-    # Check address completeness: needs city + postal code
-    addr = (d.get('addr') or '').strip()
-    addr_lines = [l.strip() for l in addr.split('\n') if l.strip()]
-    has_postal = any(len(l) >= 6 and any(c.isdigit() for c in l) for l in addr_lines)
-    has_city = len(addr_lines) >= 2
-    if not addr or addr in ('-', 'None') or not has_postal or not has_city:
-        missing.append('addr')
     return missing
 
 def show_format_buttons(chat_id, d):
@@ -130,6 +123,17 @@ def ask_next_missing(chat_id, uid):
         user_data[uid] = d
         save_user_data()
         tg(chat_id, MISSING_QUESTIONS[field])
+    elif not d.get('addr_confirmed'):
+        # Confirm address with user
+        addr = (d.get('addr') or '—').replace('\n', ', ')
+        d['waiting_field'] = None
+        user_data[uid] = d
+        save_user_data()
+        kb = [
+            [{'text': '✅ Confirmer', 'callback_data': 'addr_ok'},
+             {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]
+        ]
+        tg(chat_id, "📍 Adresse détectée :\n" + addr + "\n\nCorrect?", kb)
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
@@ -551,6 +555,8 @@ def handle_update(data):
                     field = d['waiting_field']
                     d[field] = text.strip()
                     d['waiting_field'] = None
+                    if field == 'addr':
+                        d['addr_confirmed'] = True
                     user_data[uid] = d
                     save_user_data()
                     ask_next_missing(chat_id, uid)
