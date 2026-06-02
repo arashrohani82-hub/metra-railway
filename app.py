@@ -75,7 +75,7 @@ load_user_data()
 def build_ods_num(d):
     import datetime as _dt
     yr = _dt.datetime.now().strftime('%y')
-    num = str(d.get('project_num') or random.randint(100, 999))
+    num = str(d.get('project_num') or '000').zfill(3)
     addr = (d.get('addr') or '')
     addr_lines = [l.strip() for l in addr.split('\n') if l.strip()]
     city_line = addr_lines[1] if len(addr_lines) >= 2 else (addr_lines[0] if addr_lines else '')
@@ -190,6 +190,11 @@ def ask_next_missing(chat_id, uid):
                  {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]
             ]
             tg(chat_id, "📍 Adresse détectée :\n" + addr_display + "\n\nCorrect?", kb)
+    elif not d.get('project_num'):
+        d['waiting_field'] = 'project_num'
+        user_data[uid] = d
+        save_user_data()
+        tg(chat_id, "🔢 Numéro du projet? (ex: 062)\n\n_(Tapez /nouveau pour recommencer)_")
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
