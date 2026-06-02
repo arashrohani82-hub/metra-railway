@@ -86,13 +86,22 @@ def tg(chat_id, text, keyboard=None):
     except Exception as e:
         logger.error(f"tg error: {e}")
 
-def tg_doc(chat_id, data, filename, caption):
+def tg_doc(chat_id, buf, filename, caption):
     try:
-        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendDocument',
+        buf.seek(0)
+        file_bytes = buf.read()
+        logger.info(f"tg_doc: sending {filename}, size={len(file_bytes)} bytes to {chat_id}")
+        resp = req.post(
+            f'https://api.telegram.org/bot{BOT_TOKEN}/sendDocument',
             data={'chat_id': chat_id, 'caption': caption},
-            files={'document': (filename, data)}, timeout=30)
+            files={'document': (filename, file_bytes)},
+            timeout=60)
+        logger.info(f"tg_doc response: {resp.status_code} — {resp.text[:200]}")
     except Exception as e:
+        import traceback
         logger.error(f"tg_doc error: {e}")
+        logger.error(traceback.format_exc())
+        tg(chat_id, f"❌ Erreur envoi fichier: {str(e)}")
 
 def draw_header_footer(canvas, doc):
     canvas.saveState()
@@ -304,27 +313,41 @@ suggested_price: CAD integer. ONLY JSON."""
 
 def do_excel(chat_id, uid):
     d = user_data.get(uid)
+    logger.info(f"do_excel called: uid={uid}, data={d is not None}")
     if not d:
-        tg(chat_id, "❌ Envoyez une nouvelle photo.")
+        tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
         return
     try:
+        logger.info(f"Generating Excel for {d.get('name','?')}")
+        tg(chat_id, "⏳ Génération Excel...")
         buf = generate_excel(d)
         fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.xlsx"
+        logger.info(f"Excel generated, sending {fname}")
         tg_doc(chat_id, buf, fname, f"✅ Excel — ${d['price']:,} CAD")
     except Exception as e:
-        tg(chat_id, f"❌ {str(e)}")
+        import traceback
+        logger.error(f"do_excel error: {e}")
+        logger.error(traceback.format_exc())
+        tg(chat_id, f"❌ Erreur Excel: {str(e)}")
 
 def do_pdf(chat_id, uid):
     d = user_data.get(uid)
+    logger.info(f"do_pdf called: uid={uid}, data={d is not None}")
     if not d:
-        tg(chat_id, "❌ Envoyez une nouvelle photo.")
+        tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
         return
     try:
+        logger.info(f"Generating PDF for {d.get('name','?')}")
+        tg(chat_id, "⏳ Génération PDF...")
         buf = generate_pdf(d)
         fname = f"{d['odsNum']}_{d['name'].replace(' ','-')}.pdf"
+        logger.info(f"PDF generated, sending {fname}")
         tg_doc(chat_id, buf, fname, f"✅ PDF — ${d['price']:,} CAD")
     except Exception as e:
-        tg(chat_id, f"❌ {str(e)}")
+        import traceback
+        logger.error(f"do_pdf error: {e}")
+        logger.error(traceback.format_exc())
+        tg(chat_id, f"❌ Erreur PDF: {str(e)}")
 
 @app.route('/')
 def index():
