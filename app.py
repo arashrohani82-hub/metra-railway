@@ -123,6 +123,9 @@ MISSING_QUESTIONS = {
 
 def get_missing_fields(d):
     missing = []
+    # project_num first
+    if not d.get('project_num'):
+        missing.append('project_num')
     for key in ['name', 'phone', 'email']:
         val = (d.get(key) or '').strip()
         if not val or val in ('-', 'None'):
@@ -190,11 +193,6 @@ def ask_next_missing(chat_id, uid):
                  {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]
             ]
             tg(chat_id, "📍 Adresse détectée :\n" + addr_display + "\n\nCorrect?", kb)
-    elif not d.get('project_num'):
-        d['waiting_field'] = 'project_num'
-        user_data[uid] = d
-        save_user_data()
-        tg(chat_id, "🔢 Numéro du projet? (ex: 062)\n\n_(Tapez /nouveau pour recommencer)_")
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
