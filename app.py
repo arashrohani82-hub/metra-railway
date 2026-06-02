@@ -262,7 +262,7 @@ def generate_pdf(data):
     story.append(Spacer(1, 8))
     story.append(Paragraph('<b>AUTRES FRAIS (SI APPLICABLE)</b>', sb_))
     story.append(Spacer(1, 5))
-    story.append(Paragraph('Le délai de livraison estimé est de 10 jours ouvrables suivant la visite finale sur site.', sn))
+    story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10 jours ouvrables') + ' suivant la visite finale sur site.', sn))
     story.append(Spacer(1, 6))
     story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb_))
     for h in [
