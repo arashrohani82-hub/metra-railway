@@ -111,6 +111,7 @@ def show_format_buttons(chat_id, d):
     kb = [
         [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
         [{'text': '✏️ Changer prix', 'callback_data': 'price'}],
+        [{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}],
     ]
     tg(chat_id, msg, kb)
 
@@ -122,7 +123,7 @@ def ask_next_missing(chat_id, uid):
         d['waiting_field'] = field
         user_data[uid] = d
         save_user_data()
-        tg(chat_id, MISSING_QUESTIONS[field])
+        tg(chat_id, MISSING_QUESTIONS[field] + "\n\n_(Tapez /nouveau pour recommencer)_")
     elif not d.get('addr_confirmed'):
         addr = (d.get('addr') or '').strip()
         # Check if address looks complete (has postal code pattern like H1A 1A1)
@@ -548,8 +549,10 @@ def handle_update(data):
             chat_id = msg['chat']['id']
             if msg.get('text'):
                 text = msg['text']
-                if text == '/start':
-                    tg(chat_id, "👋 *Bienvenue — Métra Structure*\n\n📸 Envoyez une photo du client")
+                if text in ('/start', '/nouveau'):
+                    user_data.pop(uid, None)
+                    save_user_data()
+                    tg(chat_id, "👋 *Métra Structure — Nouveau client*\n\n📸 Envoyez une photo ou collez le texte du client.")
                     return
                 d = user_data.get(uid, {})
                 if d.get('waiting_price'):
