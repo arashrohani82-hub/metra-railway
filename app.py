@@ -312,58 +312,71 @@ suggested_price: CAD integer. ONLY JSON."""
         logger.error(traceback.format_exc())
         tg(chat_id, f"❌ Erreur: {str(e)}")
 
-def do_extract_text(chat_id, uid, text):
+def do_extract_text(chat_id, uid, client_text):
     uid = str(uid)
     try:
-        prompt = f"""Extract client info from this email/text. Return ONLY JSON:
-{{"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}}
-suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
-suggested_price: CAD integer based on complexity. ONLY JSON.
+        PROMPT = (
+            "Extract client info from this email/text. Return ONLY JSON with these keys: "
+            "client_name, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
+            "suggested_service must be one of: Analyse structurale generale, Inspection et rapport structural, "
+            "Avis d expert stabilisation et renforcement, Enlevement de mur porteur, Inspection des fondations, "
+            "Evaluation des fissures et desordres structuraux, Mur de soutenement, Conception structurale complete, "
+            "Analyse structurale sous-sol et ajout au-dessus du garage, Reamenagement interieur avec modification structurale. "
+            "suggested_price: integer CAD. ONLY JSON, no markdown.\n\nText:\n"
+        ) + client_text
 
-Text:
-{text}"""
         response = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=800,
-            messages=[{{"role":"user","content":prompt}}]
+            messages=[{"role": "user", "content": PROMPT}]
         )
-        result = ''.join(b.text for b in response.content if hasattr(b,'text'))
-        info = json.loads(result.replace('```json','').replace('```','').strip())
+        result = ''.join(b.text for b in response.content if hasattr(b, 'text'))
+        result = result.replace('```json', '').replace('```', '').strip()
+        info = json.loads(result)
 
         yr = datetime.now().strftime('%y')
-        ods_num = f"ODS{{yr}}-{{random.randint(100,999)}}"
-        price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
+        ods_num = "ODS" + yr + "-" + str(random.randint(100, 999))
+        price = info.get('suggested_price') or PRICES.get(info.get('suggested_service', ''), 3200)
 
-        user_data[uid] = {{
-            'name': info.get('client_name',''),
-            'phone': info.get('phone',''),
-            'email': info.get('email',''),
-            'addr': info.get('address',''),
-            'desc': info.get('project_description',''),
-            'service': info.get('suggested_service',''),
+        user_data[uid] = {
+            'name': info.get('client_name', ''),
+            'phone': info.get('phone', ''),
+            'email': info.get('email', ''),
+            'addr': info.get('address', ''),
+            'desc': info.get('project_description', ''),
+            'service': info.get('suggested_service', ''),
             'price': price,
             'odsNum': ods_num,
             'date': datetime.now().strftime('%Y-%m-%d'),
-        }}
+        }
         save_user_data()
 
-        msg_out = (f"✅ *Informations extraites*\n\n"
-                   f"👤 {{info.get('client_name','—')}}\n"
-                   f"📍 {{info.get('address','—')}}\n"
-                   f"📞 {{info.get('phone','—')}}\n"
-                   f"📧 {{info.get('email','—')}}\n"
-                   f"🏠 {{info.get('property_type','—')}}\n\n"
-                   f"🔧 {{info.get('suggested_service','—')}}\n"
-                   f"💰 ${{price:,}} CAD\n"
-                   f"📄 {{ods_num}}\n\nFormat?")
+        name = info.get('client_name', '—')
+        addr = info.get('address', '—')
+        phone = info.get('phone', '—')
+        email = info.get('email', '—')
+        ptype = info.get('property_type', '—')
+        service = info.get('suggested_service', '—')
+        msg_out = (
+            "✅ *Informations extraites*\n\n"
+            "👤 " + name + "\n"
+            "📍 " + addr + "\n"
+            "📞 " + phone + "\n"
+            "📧 " + email + "\n"
+            "🏠 " + ptype + "\n\n"
+            "🔧 " + service + "\n"
+            "💰 $" + "{:,}".format(price) + " CAD\n"
+            "📄 " + ods_num + "\n\nFormat?"
+        )
         kb = [
-            [{{'text':'📊 Excel','callback_data':'xl'}},{{'text':'📄 PDF','callback_data':'pdf'}}],
-            [{{'text':'✏️ Changer prix','callback_data':'price'}}]
+            [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
+            [{'text': '✏️ Changer prix', 'callback_data': 'price'}]
         ]
         tg(chat_id, msg_out, kb)
     except Exception as e:
         import traceback
-        logger.error(f"do_extract_text error: {{e}}\n{{traceback.format_exc()}}")
-        tg(chat_id, f"❌ Erreur extraction: {{str(e)}}")
+        logger.error("do_extract_text error: " + str(e))
+        logger.error(traceback.format_exc())
+        tg(chat_id, "❌ Erreur extraction: " + str(e))
 
 def do_excel(chat_id, uid):
     uid = str(uid)
