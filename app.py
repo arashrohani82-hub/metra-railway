@@ -584,9 +584,28 @@ def handle_update(data):
                     do_excel(chat_id, uid)
                 else:
                     do_pdf(chat_id, uid)
+            elif cdata == 'addr_ok':
+                d = user_data.get(uid, {})
+                d['addr_confirmed'] = True
+                d['waiting_field'] = None
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
+            elif cdata == 'addr_edit':
+                d = user_data.get(uid, {})
+                d['addr_confirmed'] = False
+                d['waiting_field'] = 'addr'
+                user_data[uid] = d
+                save_user_data()
+                tg(chat_id, "📍 Entrez l'adresse complète:\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)")
+            elif cdata == 'nouveau':
+                user_data.pop(uid, None)
+                save_user_data()
+                tg(chat_id, "👋 *Nouveau client*\n\n📸 Envoyez une photo ou collez le texte du client.")
             elif cdata == 'price':
                 d = user_data.get(uid, {})
                 d['waiting_price'] = True
+                d['waiting_field'] = None
                 user_data[uid] = d
                 tg(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
 
