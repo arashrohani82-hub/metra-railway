@@ -183,9 +183,9 @@ def ask_next_missing(chat_id, uid):
             save_user_data()
             tg(chat_id, "📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)")
         else:
-            # Complete — show confirm buttons
+            # Complete — show confirm buttons (no waiting_field set, buttons handle it)
             addr_display = addr.replace('\n', ', ')
-            d['waiting_field'] = 'addr_confirm'
+            d['waiting_field'] = None
             user_data[uid] = d
             save_user_data()
             kb = [
@@ -614,12 +614,8 @@ def handle_update(data):
                         tg(chat_id, "❌ Nombre invalide (ex: 3500)")
                 elif d.get('waiting_field'):
                     field = d['waiting_field']
-                    if field == 'addr_confirm':
-                        # Must use buttons — ignore text
-                        addr_display = (d.get('addr') or '').replace('\n', ', ')
-                        kb = [[{'text': '✅ Confirmer', 'callback_data': 'addr_ok'},
-                               {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]]
-                        tg(chat_id, "📍 " + addr_display + "\n\nUtilisez les boutons:", kb)
+                    if False:
+                        pass
                     else:
                         d[field] = text.strip()
                         d['waiting_field'] = None
