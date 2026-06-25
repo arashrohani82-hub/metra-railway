@@ -203,10 +203,13 @@ def ask_desc_options(chat_id, uid):
     except Exception as e:
         import traceback
         logger.error("ask_desc_options error: " + str(e) + "\n" + traceback.format_exc())
-        d["desc_confirmed"] = True
+        tg(chat_id, "❌ Erreur description: " + str(e))
+        # Don't skip — ask user to write manually
+        d["waiting_field"] = "desc"
+        d["desc_confirmed"] = False
         user_data[uid] = d
         save_user_data()
-        ask_next_missing(chat_id, uid)
+        tg(chat_id, "✏️ Écrivez la description du mandat manuellement:")
 
 def ask_next_missing(chat_id, uid):
     d = user_data.get(uid, {})
@@ -724,6 +727,13 @@ def handle_update(data):
                     else:
                         tg(chat_id, "📸 Envoyez une photo ou collez le texte du client.")
             elif msg.get('photo'):
+                # Guard against double processing
+                d = user_data.get(uid, {})
+                if d.get('extracting'):
+                    return
+                d['extracting'] = True
+                user_data[uid] = d
+                save_user_data()
                 file_id = msg['photo'][-1]['file_id']
                 tg(chat_id, "🔍 Extraction en cours...")
                 executor.submit(do_extract, chat_id, uid, file_id)
