@@ -194,12 +194,17 @@ def ask_desc_options(chat_id, uid):
         d["desc_options"] = options
         user_data[uid] = d
         save_user_data()
-        kb = []
+        # Show full descriptions then buttons
+        msg_lines = ["📋 *Choisissez la description technique:*\n"]
         for i, opt in enumerate(options):
-            short = opt[:55] + "..." if len(opt) > 55 else opt
-            kb.append([{"text": str(i+1) + ". " + short, "callback_data": "desc_" + str(i)}])
+            msg_lines.append(f"*{i+1}.* {opt}\n")
+        msg_lines.append("_Appuyez sur le bouton correspondant:_")
+        tg(chat_id, "\n".join(msg_lines))
+        kb = []
+        for i in range(len(options)):
+            kb.append([{"text": f"✅ Option {i+1}", "callback_data": "desc_" + str(i)}])
         kb.append([{"text": "✏️ Écrire ma propre description", "callback_data": "desc_custom"}])
-        tg(chat_id, "📋 *Choisissez la description technique:*", kb)
+        tg(chat_id, "👇 Votre choix:", kb)
     except Exception as e:
         import traceback
         logger.error("ask_desc_options error: " + str(e) + "\n" + traceback.format_exc())
