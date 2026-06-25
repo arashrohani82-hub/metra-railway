@@ -235,6 +235,13 @@ def ask_next_missing(chat_id, uid):
                  {'text': '✏️ Modifier', 'callback_data': 'addr_edit'}]
             ]
             tg(chat_id, "📍 Adresse détectée :\n" + addr_display + "\n\nCorrect?", kb)
+    elif not d.get('desc_confirmed'):
+        executor.submit(ask_desc_options, chat_id, uid)
+    elif not d.get('project_num'):
+        d['waiting_field'] = 'project_num'
+        user_data[uid] = d
+        save_user_data()
+        tg(chat_id, "🔢 Numéro du projet? (ex: 062)\n\n_(Tapez /nouveau pour recommencer)_")
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
