@@ -172,12 +172,16 @@ def ask_desc_options(chat_id, uid):
         raw_desc = d.get('desc', '')
         property_type = d.get('property_type', '')
         addr = d.get('addr', '')
+        # If service_lines already extracted, use them as option 1
+        existing_lines = d.get('service_lines', [])
+        existing_desc = d.get('desc', '')
+
         prompt = (
-            "You are a structural engineering expert at Metra Structure Inc. "
-            "Generate exactly 3 professional engineering descriptions IN FRENCH for a service proposal. "
-            "Each: 2-3 sentences, technical, use proper engineering terms. "
+            "You are a structural engineering expert at Métra Structure Inc. "
+            "Generate exactly 3 different professional mandate descriptions IN FRENCH (2-3 sentences each, technical). "
             "Service: " + service + ". Property: " + property_type + ". "
             "Address: " + addr + ". Context: " + raw_desc + ". "
+            "Make each option distinct in approach and detail level. "
             "Return ONLY JSON array: [\"desc1\", \"desc2\", \"desc3\"]"
         )
         response = client.messages.create(
