@@ -311,6 +311,21 @@ def draw_header_footer(canvas, doc):
     canvas.drawRightString(W-1.8*cm, 0.6*cm, f'{doc.page} | Page')
     canvas.restoreState()
 
+def _build_service_desc(data):
+    """Build bullet-point service description for PDF table cell."""
+    lines = data.get('service_lines') or []
+    # If no service_lines, build from desc
+    if not lines:
+        desc = data.get('desc') or data.get('service') or ''
+        # Split by semicolon or period
+        import re as _re
+        parts = [p.strip() for p in _re.split(r'[;.]', desc) if p.strip()]
+        lines = parts[:4]
+    # Format as bullet lines
+    if lines:
+        return '<br/>'.join('• ' + l.rstrip(';.') + ';' for l in lines[:4])
+    return data.get('service', '')
+
 def generate_pdf(data):
     buf = io.BytesIO()
     doc = BaseDocTemplate(buf, pagesize=letter,
@@ -375,7 +390,7 @@ def generate_pdf(data):
     story.append(Spacer(1, 5))
     hon_data = [
         [Paragraph('<b>Description des services</b>',shb),Paragraph('<b>Unité</b>',shb),Paragraph('<b>Quantité</b>',shb),Paragraph('<b>Coût unitaire</b>',shb),Paragraph('<b>Coût total</b>',shb)],
-        [Paragraph(data.get('desc', data.get('service','')),s('sd',leading=13)),Paragraph('Forfait',shn),Paragraph('1',shn),Paragraph(pf,shn),Paragraph(pf,shn)],
+        [Paragraph(_build_service_desc(data),s('sd',leading=14)),Paragraph('Forfait',shn),Paragraph('1',shn),Paragraph(pf,shn),Paragraph(pf,shn)],
         ['','','',Paragraph('Total des honoraires du projet',str_),Paragraph(f'<b>{pf}</b>',shb)],
     ]
     ht = Table(hon_data, colWidths=[8.5*cm,1.8*cm,1.8*cm,3.8*cm,2.6*cm])
