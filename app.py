@@ -312,19 +312,21 @@ def draw_header_footer(canvas, doc):
     canvas.restoreState()
 
 def _build_service_desc(data):
-    """Build bullet-point service description for PDF table cell."""
-    lines = data.get('service_lines') or []
-    # If no service_lines, build from desc
-    if not lines:
-        desc = data.get('desc') or data.get('service') or ''
-        # Split by semicolon or period
+    """Max 4 short bullet lines for PDF table cell."""
+    # Priority: service_lines from extraction
+    raw = data.get('service_lines') or []
+    if not raw:
         import re as _re
-        parts = [p.strip() for p in _re.split(r'[;.]', desc) if p.strip()]
-        lines = parts[:4]
-    # Format as bullet lines
-    if lines:
-        return '<br/>'.join('• ' + l.rstrip(';.') + ';' for l in lines[:4])
-    return data.get('service', '')
+        desc = data.get('desc') or data.get('service') or ''
+        raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
+    # Take max 4, each max 80 chars
+    result = []
+    for line in raw[:4]:
+        line = line.rstrip(';. ')
+        if len(line) > 80:
+            line = line[:77] + '...'
+        result.append('• ' + line + ';')
+    return '<br/>'.join(result) if result else data.get('service', '')
 
 def generate_pdf(data):
     buf = io.BytesIO()
