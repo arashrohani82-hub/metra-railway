@@ -1,3 +1,4 @@
+import re
 import os, json, io, shutil, base64, logging
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
@@ -161,6 +162,48 @@ def show_format_buttons(chat_id, d):
     ]
     tg(chat_id, msg, kb)
 
+
+def ask_desc_options(chat_id, uid):
+    uid = str(uid)
+    d = user_data.get(uid, {})
+    try:
+        tg(chat_id, "✍️ Génération des descriptions techniques...")
+        service = d.get('service', '')
+        raw_desc = d.get('desc', '')
+        property_type = d.get('property_type', '')
+        addr = d.get('addr', '')
+        prompt = (
+            "You are a structural engineering expert at Metra Structure Inc. "
+            "Generate exactly 3 professional engineering descriptions IN FRENCH for a service proposal. "
+            "Each: 2-3 sentences, technical, use proper engineering terms. "
+            "Service: " + service + ". Property: " + property_type + ". "
+            "Address: " + addr + ". Context: " + raw_desc + ". "
+            "Return ONLY JSON array: [\"desc1\", \"desc2\", \"desc3\"]"
+        )
+        response = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=800,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result = "".join(b.text for b in response.content if hasattr(b, "text"))
+        result = result.replace("```json", "").replace("```", "").strip()
+        options = json.loads(result)
+        d["desc_options"] = options
+        user_data[uid] = d
+        save_user_data()
+        kb = []
+        for i, opt in enumerate(options):
+            short = opt[:55] + "..." if len(opt) > 55 else opt
+            kb.append([{"text": str(i+1) + ". " + short, "callback_data": "desc_" + str(i)}])
+        kb.append([{"text": "✏️ Écrire ma propre description", "callback_data": "desc_custom"}])
+        tg(chat_id, "📋 *Choisissez la description technique:*", kb)
+    except Exception as e:
+        import traceback
+        logger.error("ask_desc_options error: " + str(e) + "\n" + traceback.format_exc())
+        d["desc_confirmed"] = True
+        user_data[uid] = d
+        save_user_data()
+        ask_next_missing(chat_id, uid)
+
 def ask_next_missing(chat_id, uid):
     d = user_data.get(uid, {})
     missing = get_missing_fields(d)
@@ -173,7 +216,6 @@ def ask_next_missing(chat_id, uid):
     elif not d.get('addr_confirmed'):
         addr = (d.get('addr') or '').strip()
         # Check if address looks complete (has postal code pattern like H1A 1A1)
-        import re
         has_postal = bool(re.search(r'[A-Z]\d[A-Z]\s*\d[A-Z]\d', addr, re.IGNORECASE))
         has_street_num = bool(re.search(r'\d', addr))
         if not addr or not has_postal or not has_street_num:
@@ -598,6 +640,25 @@ def handle_update(data):
                 user_data[uid] = d
                 save_user_data()
                 tg(chat_id, "📍 Entrez l'adresse complète:\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)")
+            elif cdata.startswith('desc_'):
+                d = user_data.get(uid, {})
+                if cdata == 'desc_custom':
+                    d['waiting_field'] = 'desc'
+                    d['desc_confirmed'] = False
+                    user_data[uid] = d
+                    save_user_data()
+                    tg(chat_id, "✏️ Écrivez votre description technique:")
+                else:
+                    idx = int(cdata.split('_')[1])
+                    options = d.get('desc_options', [])
+                    if idx < len(options):
+                        d['desc'] = options[idx]
+                        d['desc_confirmed'] = True
+                        d['waiting_field'] = None
+                        user_data[uid] = d
+                        save_user_data()
+                        tg(chat_id, "✅ Description sélectionnée.")
+                        ask_next_missing(chat_id, uid)
             elif cdata == 'nouveau':
                 user_data.pop(uid, None)
                 save_user_data()
@@ -640,6 +701,8 @@ def handle_update(data):
                         d['waiting_field'] = None
                         if field == 'addr':
                             d['addr_confirmed'] = True
+                        if field == 'desc':
+                            d['desc_confirmed'] = True
                         user_data[uid] = d
                         save_user_data()
                         ask_next_missing(chat_id, uid)
