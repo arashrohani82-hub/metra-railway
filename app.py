@@ -472,7 +472,8 @@ suggested_service from: "Analyse structurale générale","Inspection et rapport 
 suggested_price: CAD integer. ONLY JSON."""
 
         response = client.messages.create(
-            model="claude-sonnet-4-6", max_tokens=800,
+            model="claude-sonnet-4-6", max_tokens=1200,
+            temperature=0,
             messages=[{"role":"user","content":[
                 {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":img_b64}},
                 {"type":"text","text":prompt}
