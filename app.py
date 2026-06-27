@@ -324,13 +324,9 @@ def _build_service_desc(data):
         import re as _re
         desc = data.get('desc') or data.get('service') or ''
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
-    # Take max 4, each max 80 chars
     result = []
     for line in raw[:4]:
-        line = line.rstrip(';. ')
-        if len(line) > 80:
-            line = line[:77] + '...'
-        result.append('• ' + line + ';')
+        result.append('• ' + line.rstrip(';. ') + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
 def generate_pdf(data):
