@@ -378,8 +378,8 @@ def generate_pdf(data):
 
     story.append(PageBreak())
     story.append(Paragraph('<b>6. Présence sur site et logistique</b>', sh))
-    story.append(Paragraph("Toute requête impliquant une visite ou un déplacement sur le chantier doit être transmise au moins quarante-huit (48) heures avant la date prévue.", sj))
-    story.append(Spacer(1, 6))
+    story.append(Paragraph("Toute requête de déplacement doit être transmise au moins 48 heures avant la date prévue.", sj))
+    story.append(Spacer(1, 4))
     story.append(Paragraph('<b>TAUX HORAIRES</b>', sb_))
     story.append(Spacer(1, 3))
     rt = Table([[Paragraph(r, str_), Paragraph(v, sn)] for r,v in [
@@ -388,7 +388,7 @@ def generate_pdf(data):
     ]], colWidths=[9*cm, 3*cm])
     rt.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(rt)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 6))
     story.append(Paragraph('<b>HONORAIRES – FORFAIT DU PROJET</b>', sb_))
     story.append(Spacer(1, 5))
     hon_data = [
@@ -411,13 +411,13 @@ def generate_pdf(data):
     story.append(Spacer(1, 6))
     story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb_))
     for h in [
-        "1-Les plans architecturaux et structuraux seront fournis avant le début du mandat(si disponible )",
-        "2-Accès à l'ensemble des éléments structuraux accessibles, incluant notamment les colonnes, les poutres, les murs porteurs, les murs de contreventement ainsi que les fondations, lorsque applicable",
-        "3-La vérification, la coordination et l'approbation par l'architecte ou le technologue ne sont pas incluses dans la présente offre de service.",
+        "1- Plans architecturaux fournis avant le début du mandat (si disponible);",
+        "2- Accès aux éléments structuraux accessibles (colonnes, poutres, murs porteurs, fondations);",
+        "3- Vérification et approbation par l'architecte non incluses dans la présente offre.",
     ]:
         story.append(Paragraph(h, sn))
     story.append(Spacer(1, 8))
-    story.append(Paragraph("La présente offre est valable pour une durée de trente (30) jours. Afin de l'accepter, veuillez compléter les sections suivantes.", sn))
+    story.append(Paragraph("Cette offre est valable 30 jours. Pour l'accepter, veuillez compléter les sections suivantes.", sn))
     story.append(Spacer(1, 16))
     sig = Table([
         [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.',sn),Paragraph('<b>Nom du client:</b>',sn)],
