@@ -155,8 +155,31 @@ def show_format_buttons(chat_id, d):
         "Format?",
     ]
     msg = "\n".join(lines)
+    # Build mailto link
+    client_email = d.get('email') or ''
+    client_name = d.get('name') or ''
+    ods = d.get('odsNum') or ''
+    service = d.get('service') or ''
+    addr = (d.get('addr') or '').replace('\n', ', ')
+    import urllib.parse
+    subject = urllib.parse.quote(f"{ods} – Offre de service – {client_name}")
+    body = urllib.parse.quote(
+        f"Bonjour {client_name},\n\n"
+        f"Veuillez trouver ci-joint notre offre de service {ods} concernant :\n"
+        f"{service}\n"
+        f"Adresse : {addr}\n\n"
+        f"N'hésitez pas à nous contacter pour toute question.\n\n"
+        f"Cordialement,\n"
+        f"Arash Rohani, ing., P.Eng.\n"
+        f"Président-Ingénieur en structure\n"
+        f"Métra Structure Inc.\n"
+        f"(438) 867-4131 | info@metrastructure.ca"
+    )
+    mailto = f"mailto:{client_email}?subject={subject}&body={body}"
+
     kb = [
         [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
+        [{'text': '📧 Envoyer par email', 'url': mailto}],
         [{'text': '✏️ Changer prix', 'callback_data': 'price'}],
         [{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}],
     ]
