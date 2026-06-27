@@ -227,15 +227,12 @@ def ask_next_missing(chat_id, uid):
         tg(chat_id, MISSING_QUESTIONS[field] + "\n\n_(Tapez /nouveau pour recommencer)_")
     elif not d.get('addr_confirmed'):
         addr = (d.get('addr') or '').strip()
-        # Check if address looks complete (has postal code pattern like H1A 1A1)
-        has_postal = bool(re.search(r'[A-Z]\d[A-Z]\s*\d[A-Z]\d', addr, re.IGNORECASE))
-        has_street_num = bool(re.search(r'\d', addr))
-        if not addr or not has_postal or not has_street_num:
-            # Incomplete — ask directly
+        if not addr or addr in ('—', 'Non indiqué', 'None'):
+            # Completely missing — ask
             d['waiting_field'] = 'addr'
             user_data[uid] = d
             save_user_data()
-            tg(chat_id, "📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)")
+            tg(chat_id, "📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC H1A 1A1\nCanada)")
         else:
             # Complete — show confirm buttons (no waiting_field set, buttons handle it)
             addr_display = addr.replace('\n', ', ')
