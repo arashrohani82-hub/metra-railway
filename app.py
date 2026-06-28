@@ -1,3 +1,4 @@
+import urllib.parse
 import re
 import os, json, io, shutil, base64, logging
 from datetime import datetime
@@ -156,33 +157,39 @@ def show_format_buttons(chat_id, d):
     ]
     msg = "\n".join(lines)
     # Build mailto link
-    client_email = d.get('email') or ''
-    client_name = d.get('name') or ''
-    ods = d.get('odsNum') or ''
-    service = d.get('service') or ''
-    addr = (d.get('addr') or '').replace('\n', ', ')
-    import urllib.parse
-    subject = urllib.parse.quote(f"{ods} – Offre de service – {client_name}")
-    body = urllib.parse.quote(
-        f"Bonjour {client_name},\n\n"
-        f"Veuillez trouver ci-joint notre offre de service {ods} concernant :\n"
-        f"{service}\n"
-        f"Adresse : {addr}\n\n"
-        f"N'hésitez pas à nous contacter pour toute question.\n\n"
-        f"Cordialement,\n"
-        f"Arash Rohani, ing., P.Eng.\n"
-        f"Président-Ingénieur en structure\n"
-        f"Métra Structure Inc.\n"
-        f"(438) 867-4131 | info@metrastructure.ca"
-    )
-    mailto = f"mailto:{client_email}?subject={subject}&body={body}"
+    try:
+        client_email = d.get('email') or ''
+        client_name = d.get('name') or ''
+        ods = d.get('odsNum') or ''
+        service = d.get('service') or ''
+        addr = (d.get('addr') or '').replace('\n', ', ')
+        subject = urllib.parse.quote(ods + ' - Offre de service - ' + client_name)
+        body_text = (
+            'Bonjour ' + client_name + ',\n\n'
+            'Veuillez trouver ci-joint notre offre de service ' + ods + ' concernant :\n'
+            + service + '\n'
+            'Adresse : ' + addr + '\n\n'
+            "N'hesitez pas a nous contacter pour toute question.\n\n"
+            'Cordialement,\n'
+            'Arash Rohani, ing., P.Eng.\n'
+            'President-Ingenieur en structure\n'
+            'Metra Structure Inc.\n'
+            '(438) 867-4131 | info@metrastructure.ca'
+        )
+        body = urllib.parse.quote(body_text)
+        mailto = 'mailto:' + client_email + '?subject=' + subject + '&body=' + body
+        email_btn = [{'text': '📧 Envoyer par email', 'url': mailto}]
+    except Exception as e:
+        logger.error('mailto error: ' + str(e))
+        email_btn = []
 
     kb = [
         [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
-        [{'text': '📧 Envoyer par email', 'url': mailto}],
-        [{'text': '✏️ Changer prix', 'callback_data': 'price'}],
-        [{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}],
     ]
+    if email_btn:
+        kb.append(email_btn)
+    kb.append([{'text': '✏️ Changer prix', 'callback_data': 'price'}])
+    kb.append([{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}])
     tg(chat_id, msg, kb)
 
 
