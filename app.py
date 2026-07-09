@@ -175,22 +175,17 @@ def show_format_buttons(chat_id, d):
         ods_num = d.get('odsNum') or ''
         service = d.get('service') or ''
         addr = (d.get('addr') or '').replace('\n', ', ')
-        email_text = (
-            "📧 *Brouillon courriel — copier/coller dans Outlook:*\n\n"
-            "*À:* " + client_email + "\n"
-            "*Objet:* " + ods_num + " – Offre de service\n\n"
+        # 3 separate messages for easy copy/paste
+        tg(chat_id, "📧 *À:*\n" + client_email)
+        tg(chat_id, "📋 *Objet:*\n" + ods_num + " – Offre de service – " + client_name)
+        body_msg = (
             "Bonjour " + client_name + ",\n\n"
             "Veuillez trouver ci-joint notre offre de service " + ods_num + " concernant :\n"
             + service + "\n"
             "Adresse : " + addr + "\n\n"
-            "N'hésitez pas à nous contacter pour toute question.\n\n"
-            "Cordialement,\n"
-            "Arash Rohani, ing., P.Eng.\n"
-            "Président-Ingénieur en structure\n"
-            "Métra Structure Inc.\n"
-            "(438) 867-4131 | info@metrastructure.ca"
+            "N'hésitez pas à nous contacter pour toute question."
         )
-        tg(chat_id, email_text)
+        tg(chat_id, "✉️ *Corps du message:*\n\n" + body_msg)
     except Exception as e:
         logger.error('email draft error: ' + str(e))
 
