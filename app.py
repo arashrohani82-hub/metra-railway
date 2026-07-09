@@ -168,28 +168,31 @@ def show_format_buttons(chat_id, d):
     ]
     tg(chat_id, msg, kb)
 
-    # Send mailto link as separate message (Telegram doesn't support mailto in buttons)
+    # Send ready-to-copy email text
     try:
-        client_email = d.get('email') or ''
+        client_email = d.get('email') or 'Non indiqué'
         client_name = d.get('name') or ''
         ods_num = d.get('odsNum') or ''
         service = d.get('service') or ''
         addr = (d.get('addr') or '').replace('\n', ', ')
-        subject = urllib.parse.quote(ods_num + ' - Offre de service - ' + client_name)
-        body_text = (
-            'Bonjour ' + client_name + ',\n\n'
-            'Veuillez trouver ci-joint notre offre de service ' + ods_num + ' concernant :\n'
-            + service + '\n'
-            'Adresse : ' + addr + '\n\n'
-            "N'hesitez pas a nous contacter pour toute question.\n\n"
-            'Cordialement,\nArash Rohani, ing., P.Eng.\n'
-            'Metra Structure Inc. | (438) 867-4131'
+        email_text = (
+            "📧 *Brouillon courriel — copier/coller dans Outlook:*\n\n"
+            "*À:* " + client_email + "\n"
+            "*Objet:* " + ods_num + " – Offre de service\n\n"
+            "Bonjour " + client_name + ",\n\n"
+            "Veuillez trouver ci-joint notre offre de service " + ods_num + " concernant :\n"
+            + service + "\n"
+            "Adresse : " + addr + "\n\n"
+            "N'hésitez pas à nous contacter pour toute question.\n\n"
+            "Cordialement,\n"
+            "Arash Rohani, ing., P.Eng.\n"
+            "Président-Ingénieur en structure\n"
+            "Métra Structure Inc.\n"
+            "(438) 867-4131 | info@metrastructure.ca"
         )
-        body = urllib.parse.quote(body_text)
-        mailto = 'mailto:' + client_email + '?subject=' + subject + '&body=' + body
-        tg(chat_id, "📧 *Lien email prêt:*\n" + mailto)
+        tg(chat_id, email_text)
     except Exception as e:
-        logger.error('mailto error: ' + str(e))
+        logger.error('email draft error: ' + str(e))
 
 
 def ask_desc_options(chat_id, uid):
