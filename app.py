@@ -178,12 +178,16 @@ def show_format_buttons(chat_id, d):
         # 3 separate messages for easy copy/paste
         tg(chat_id, "📧 *À:*\n" + client_email)
         tg(chat_id, "📋 *Objet:*\n" + ods_num + " – Offre de service – " + client_name)
+        # Get last name for formal greeting
+        name_parts = client_name.strip().split()
+        last_name = name_parts[-1] if name_parts else client_name
         body_msg = (
-            "Bonjour " + client_name + ",\n\n"
-            "Veuillez trouver ci-joint notre offre de service " + ods_num + " concernant :\n"
-            + service + "\n"
-            "Adresse : " + addr + "\n\n"
-            "N'hésitez pas à nous contacter pour toute question."
+            "Bonjour M./Mme " + last_name + ",\n\n"
+            "Veuillez trouver ci-joint notre offre de service " + ods_num
+            + " concernant " + service.lower()
+            + " pour le projet situé au " + addr + ".\n\n"
+            "N'hésitez pas à nous contacter pour toute question.\n\n"
+            "Cordialement,"
         )
         tg(chat_id, "✉️ *Corps du message:*\n\n" + body_msg)
     except Exception as e:
