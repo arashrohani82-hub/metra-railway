@@ -161,46 +161,35 @@ def show_format_buttons(chat_id, d):
         "Format?",
     ]
     msg = "\n".join(lines)
-    # Build mailto link
+    kb = [
+        [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
+        [{'text': '✏️ Changer prix', 'callback_data': 'price'}],
+        [{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}],
+    ]
+    tg(chat_id, msg, kb)
+
+    # Send mailto link as separate message (Telegram doesn't support mailto in buttons)
     try:
         client_email = d.get('email') or ''
         client_name = d.get('name') or ''
-        ods = d.get('odsNum') or ''
+        ods_num = d.get('odsNum') or ''
         service = d.get('service') or ''
         addr = (d.get('addr') or '').replace('\n', ', ')
-        subject = urllib.parse.quote(ods + ' - Offre de service - ' + client_name)
+        subject = urllib.parse.quote(ods_num + ' - Offre de service - ' + client_name)
         body_text = (
             'Bonjour ' + client_name + ',\n\n'
-            'Veuillez trouver ci-joint notre offre de service ' + ods + ' concernant :\n'
+            'Veuillez trouver ci-joint notre offre de service ' + ods_num + ' concernant :\n'
             + service + '\n'
             'Adresse : ' + addr + '\n\n'
             "N'hesitez pas a nous contacter pour toute question.\n\n"
-            'Cordialement,\n'
-            'Arash Rohani, ing., P.Eng.\n'
-            'President-Ingenieur en structure\n'
-            'Metra Structure Inc.\n'
-            '(438) 867-4131 | info@metrastructure.ca'
+            'Cordialement,\nArash Rohani, ing., P.Eng.\n'
+            'Metra Structure Inc. | (438) 867-4131'
         )
         body = urllib.parse.quote(body_text)
         mailto = 'mailto:' + client_email + '?subject=' + subject + '&body=' + body
-        email_btn = [{'text': '📧 Envoyer par email', 'url': mailto}]
+        tg(chat_id, "📧 *Lien email prêt:*\n" + mailto)
     except Exception as e:
         logger.error('mailto error: ' + str(e))
-        email_btn = []
-
-    kb = [
-        [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
-    ]
-    if email_btn:
-        kb.append(email_btn)
-    kb.append([{'text': '✏️ Changer prix', 'callback_data': 'price'}])
-    kb.append([{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}])
-    try:
-        tg(chat_id, msg, kb)
-    except Exception as e:
-        logger.error('show_format_buttons tg error: ' + str(e))
-        tg(chat_id, "✅ Prêt à générer\n💰 $" + str(price) + " CAD\n📄 " + str(ods),
-           [[{'text': '📄 PDF', 'callback_data': 'pdf'}, {'text': '📊 Excel', 'callback_data': 'xl'}]])
 
 
 def ask_desc_options(chat_id, uid):
