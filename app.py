@@ -135,10 +135,15 @@ def get_missing_fields(d):
     return missing
 
 def show_format_buttons(chat_id, d):
-    price = d.get('price', 0)
-    ods = build_ods_num(d) + '-' + build_short_title(d)
-    d['odsNum'] = ods
-    save_user_data()
+    try:
+        price = d.get('price', 0)
+        ods = build_ods_num(d) + '-' + build_short_title(d)
+        d['odsNum'] = ods
+        save_user_data()
+    except Exception as e:
+        logger.error('show_format_buttons init error: ' + str(e))
+        price = d.get('price', 0)
+        ods = d.get('odsNum', 'ODS')
     lines = [
         "✅ *Prêt à générer*",
         "",
@@ -190,7 +195,12 @@ def show_format_buttons(chat_id, d):
         kb.append(email_btn)
     kb.append([{'text': '✏️ Changer prix', 'callback_data': 'price'}])
     kb.append([{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}])
-    tg(chat_id, msg, kb)
+    try:
+        tg(chat_id, msg, kb)
+    except Exception as e:
+        logger.error('show_format_buttons tg error: ' + str(e))
+        tg(chat_id, "✅ Prêt à générer\n💰 $" + str(price) + " CAD\n📄 " + str(ods),
+           [[{'text': '📄 PDF', 'callback_data': 'pdf'}, {'text': '📊 Excel', 'callback_data': 'xl'}]])
 
 
 def ask_desc_options(chat_id, uid):
