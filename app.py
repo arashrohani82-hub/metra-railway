@@ -635,9 +635,12 @@ def do_pdf(chat_id, uid):
                 "N'hésitez pas à nous contacter pour toute question.\n\n"
                 "Cordialement,"
             )
-            tg(chat_id, client_email)
-            tg(chat_id, ods_num2 + " – Offre de service – " + client_name)
-            tg(chat_id, body2)
+            full = (
+                client_email + "\n"
+                + ods_num2 + " – Offre de service – " + client_name + "\n\n"
+                + body2
+            )
+            tg(chat_id, full)
         except Exception as e2:
             logger.error('email after pdf error: ' + str(e2))
     except Exception as e:
