@@ -74,6 +74,24 @@ def save_user_data():
 
 load_user_data()
 
+def get_next_project_num():
+    try:
+        counter_file = '/tmp/ods_counter.json'
+        if os.path.exists(counter_file):
+            with open(counter_file, 'r') as f:
+                cdata = json.load(f)
+            num = cdata.get('counter', 80)
+        else:
+            num = 80
+        next_num = num + 1
+        with open(counter_file, 'w') as f:
+            json.dump({'counter': next_num}, f)
+        return str(next_num).zfill(3)
+    except Exception as e:
+        logger.error('counter error: ' + str(e))
+        return str(random.randint(80, 999))
+
+
 def build_ods_num(d):
     import datetime as _dt
     yr = _dt.datetime.now().strftime('%y')
@@ -255,10 +273,14 @@ def ask_next_missing(chat_id, uid):
     elif not d.get('desc_confirmed'):
         executor.submit(ask_desc_options, chat_id, uid)
     elif not d.get('project_num'):
+        suggested = get_next_project_num()
         d['waiting_field'] = 'project_num'
+        d['suggested_num'] = suggested
         user_data[uid] = d
         save_user_data()
-        tg(chat_id, "🔢 Numéro du projet? (ex: 062)\n\n_(Tapez /nouveau pour recommencer)_")
+        kb = [[{'text': '✅ ' + suggested, 'callback_data': 'num_ok'}],
+              [{'text': '✏️ Autre numéro', 'callback_data': 'num_edit'}]]
+        tg(chat_id, "🔢 Numéro suggéré: *" + suggested + "*", kb)
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
@@ -699,6 +721,19 @@ def handle_update(data):
                     do_excel(chat_id, uid)
                 else:
                     do_pdf(chat_id, uid)
+            elif cdata == 'num_ok':
+                d = user_data.get(uid, {})
+                d['project_num'] = d.get('suggested_num', '000')
+                d['waiting_field'] = None
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
+            elif cdata == 'num_edit':
+                d = user_data.get(uid, {})
+                d['waiting_field'] = 'project_num'
+                user_data[uid] = d
+                save_user_data()
+                tg(chat_id, "🔢 Entrez le numéro (ex: 082):")
             elif cdata == 'addr_ok':
                 d = user_data.get(uid, {})
                 d['addr_confirmed'] = True
