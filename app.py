@@ -168,30 +168,7 @@ def show_format_buttons(chat_id, d):
     ]
     tg(chat_id, msg, kb)
 
-    # Send ready-to-copy email text
-    try:
-        client_email = d.get('email') or 'Non indiqué'
-        client_name = d.get('name') or ''
-        ods_num = d.get('odsNum') or ''
-        service = d.get('service') or ''
-        addr = (d.get('addr') or '').replace('\n', ', ')
-        # 3 separate messages for easy copy/paste
-        tg(chat_id, "📧 *À:*\n" + client_email)
-        tg(chat_id, "📋 *Objet:*\n" + ods_num + " – Offre de service – " + client_name)
-        # Get last name for formal greeting
-        name_parts = client_name.strip().split()
-        last_name = name_parts[-1] if name_parts else client_name
-        body_msg = (
-            "Bonjour M./Mme " + last_name + ",\n\n"
-            "Veuillez trouver ci-joint notre offre de service " + ods_num
-            + " concernant " + service.lower()
-            + " pour le projet situé au " + addr + ".\n\n"
-            "N'hésitez pas à nous contacter pour toute question.\n\n"
-            "Cordialement,"
-        )
-        tg(chat_id, "✉️ *Corps du message:*\n\n" + body_msg)
-    except Exception as e:
-        logger.error('email draft error: ' + str(e))
+
 
 
 def ask_desc_options(chat_id, uid):
@@ -625,50 +602,47 @@ def do_pdf(chat_id, uid):
         tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
         return
     try:
-        # Send email draft FIRST so user can copy before switching to Outlook
-        try:
-            client_email = d.get('email') or 'Non indiqué'
-            client_name = d.get('name') or ''
-            ods_num = d.get('odsNum') or ''
-            service = d.get('service') or ''
-            addr = (d.get('addr') or '').replace('\n', ', ')
-            name_parts = client_name.strip().split()
-            first_name = name_parts[0] if name_parts else ''
-            last_name = name_parts[-1] if len(name_parts) > 1 else client_name
-            female_names = ('marie','sophie','julie','jessica','isabelle','nathalie','caroline',
-                            'maude','cindy','josiane','véronique','stephanie','catherine','sarah',
-                            'laura','emma','alice','claire','anne','christine','michèle','lucie',
-                            'audrey','camille','chantal','diane','france','ginette','helene','lea',
-                            'manon','nicole','patricia','rachel','sylvie','valerie','yasmine')
-            female_endings = ('a','ie','ine','elle','ette','anne','ène')
-            fn_lower = first_name.lower().rstrip('.')
-            is_female = fn_lower in female_names or any(fn_lower.endswith(e) for e in female_endings)
-            title = "Mme" if is_female else "M."
-            body_msg = (
-                "Bonjour " + title + " " + last_name + ",\n\n"
-                "Veuillez trouver ci-joint notre offre de service " + ods_num
-                + " concernant " + service.lower()
-                + " pour le projet situé au " + addr + ".\n\n"
-                "N'hésitez pas à nous contacter pour toute question.\n\n"
-                "Cordialement,"
-            )
-            full_email = (
-                "À : " + client_email + "\n"
-                "Objet : " + ods_num + " – Offre de service – " + client_name + "\n"
-                "\n"
-                + body_msg
-            )
-            tg(chat_id, "📋 *Copiez tout ce bloc dans Outlook:*\n\n" + full_email)
-            tg(chat_id, "👆 Copiez, puis ouvrez le PDF ci-dessous pour le joindre ↓")
-        except Exception as e:
-            logger.error('email draft in do_pdf error: ' + str(e))
-
         logger.info(f"Generating PDF for {d.get('name','?')}")
         tg(chat_id, "⏳ Génération PDF...")
         buf = generate_pdf(d)
         fname = "{}_{}.pdf".format(d.get('odsNum','ODS'), (d.get('name') or 'client').replace(' ','-'))
         logger.info(f"PDF generated, sending {fname}")
         tg_doc(chat_id, buf, fname, f"✅ PDF — ${d['price']:,} CAD")
+        # Now send email draft
+        try:
+            client_email = d.get('email') or 'Non indiqué'
+            client_name = d.get('name') or ''
+            ods_num2 = d.get('odsNum') or ''
+            service2 = d.get('service') or ''
+            addr2 = (d.get('addr') or '').replace('\n', ', ')
+            name_parts2 = client_name.strip().split()
+            first_name2 = name_parts2[0] if name_parts2 else ''
+            last_name2 = name_parts2[-1] if len(name_parts2) > 1 else client_name
+            female_names2 = ('marie','sophie','julie','jessica','isabelle','nathalie','caroline',
+                            'maude','cindy','josiane','véronique','stephanie','catherine','sarah',
+                            'laura','emma','alice','claire','anne','christine','michèle','lucie',
+                            'audrey','camille','chantal','diane','france','ginette','helene','lea',
+                            'manon','nicole','patricia','rachel','sylvie','valerie','yasmine')
+            female_endings2 = ('a','ie','ine','elle','ette','anne','ène')
+            fn2 = first_name2.lower().rstrip('.')
+            is_female2 = fn2 in female_names2 or any(fn2.endswith(e) for e in female_endings2)
+            title2 = "Mme" if is_female2 else "M."
+            body2 = (
+                "Bonjour " + title2 + " " + last_name2 + ",\n\n"
+                "Veuillez trouver ci-joint notre offre de service " + ods_num2
+                + " concernant " + service2.lower()
+                + " pour le projet situé au " + addr2 + ".\n\n"
+                "N'hésitez pas à nous contacter pour toute question.\n\n"
+                "Cordialement,"
+            )
+            full_email = (
+                "À : " + client_email + "\n"
+                "Objet : " + ods_num2 + " – Offre de service – " + client_name + "\n\n"
+                + body2
+            )
+            tg(chat_id, full_email)
+        except Exception as e2:
+            logger.error('email after pdf error: ' + str(e2))
     except Exception as e:
         import traceback
         logger.error(f"do_pdf error: {e}")
