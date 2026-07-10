@@ -625,6 +625,41 @@ def do_pdf(chat_id, uid):
         tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
         return
     try:
+        # Send email draft FIRST so user can copy before switching to Outlook
+        try:
+            client_email = d.get('email') or 'Non indiqué'
+            client_name = d.get('name') or ''
+            ods_num = d.get('odsNum') or ''
+            service = d.get('service') or ''
+            addr = (d.get('addr') or '').replace('\n', ', ')
+            name_parts = client_name.strip().split()
+            first_name = name_parts[0] if name_parts else ''
+            last_name = name_parts[-1] if len(name_parts) > 1 else client_name
+            female_names = ('marie','sophie','julie','jessica','isabelle','nathalie','caroline',
+                            'maude','cindy','josiane','véronique','stephanie','catherine','sarah',
+                            'laura','emma','alice','claire','anne','christine','michèle','lucie',
+                            'audrey','camille','chantal','diane','france','ginette','helene','lea',
+                            'manon','nicole','patricia','rachel','sylvie','valerie','yasmine')
+            female_endings = ('a','ie','ine','elle','ette','anne','ène')
+            fn_lower = first_name.lower().rstrip('.')
+            is_female = fn_lower in female_names or any(fn_lower.endswith(e) for e in female_endings)
+            title = "Mme" if is_female else "M."
+            tg(chat_id, "📋 *Copiez avant d'ouvrir Outlook:*")
+            tg(chat_id, client_email)
+            tg(chat_id, ods_num + " – Offre de service – " + client_name)
+            body_msg = (
+                "Bonjour " + title + " " + last_name + ",\n\n"
+                "Veuillez trouver ci-joint notre offre de service " + ods_num
+                + " concernant " + service.lower()
+                + " pour le projet situé au " + addr + ".\n\n"
+                "N'hésitez pas à nous contacter pour toute question.\n\n"
+                "Cordialement,"
+            )
+            tg(chat_id, body_msg)
+            tg(chat_id, "👆 Copiez le texte ci-dessus, puis ouvrez le PDF ↓")
+        except Exception as e:
+            logger.error('email draft in do_pdf error: ' + str(e))
+
         logger.info(f"Generating PDF for {d.get('name','?')}")
         tg(chat_id, "⏳ Génération PDF...")
         buf = generate_pdf(d)
