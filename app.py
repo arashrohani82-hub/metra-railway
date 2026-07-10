@@ -644,9 +644,6 @@ def do_pdf(chat_id, uid):
             fn_lower = first_name.lower().rstrip('.')
             is_female = fn_lower in female_names or any(fn_lower.endswith(e) for e in female_endings)
             title = "Mme" if is_female else "M."
-            tg(chat_id, "📋 *Copiez avant d'ouvrir Outlook:*")
-            tg(chat_id, client_email)
-            tg(chat_id, ods_num + " – Offre de service – " + client_name)
             body_msg = (
                 "Bonjour " + title + " " + last_name + ",\n\n"
                 "Veuillez trouver ci-joint notre offre de service " + ods_num
@@ -655,8 +652,14 @@ def do_pdf(chat_id, uid):
                 "N'hésitez pas à nous contacter pour toute question.\n\n"
                 "Cordialement,"
             )
-            tg(chat_id, body_msg)
-            tg(chat_id, "👆 Copiez le texte ci-dessus, puis ouvrez le PDF ↓")
+            full_email = (
+                "À : " + client_email + "\n"
+                "Objet : " + ods_num + " – Offre de service – " + client_name + "\n"
+                "\n"
+                + body_msg
+            )
+            tg(chat_id, "📋 *Copiez tout ce bloc dans Outlook:*\n\n" + full_email)
+            tg(chat_id, "👆 Copiez, puis ouvrez le PDF ci-dessous pour le joindre ↓")
         except Exception as e:
             logger.error('email draft in do_pdf error: ' + str(e))
 
