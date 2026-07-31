@@ -26,6 +26,10 @@ ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 SETUP_SECRET = os.environ.get('SETUP_SECRET', '')
+MS_TENANT_ID = os.environ.get('MS_TENANT_ID', '')
+MS_CLIENT_ID = os.environ.get('MS_CLIENT_ID', '')
+MS_CLIENT_SECRET = os.environ.get('MS_CLIENT_SECRET', '')
+EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'arash.rohani@metrastructure.ca')
 ALLOWED_USERS = {
     int(value.strip())
     for value in os.environ.get('ALLOWED_TELEGRAM_USER_IDS', '').split(',')
@@ -744,6 +748,166 @@ def do_excel(chat_id, uid):
         logger.error(traceback.format_exc())
         tg(chat_id, f"❌ Erreur Excel: {str(e)}")
 
+def valid_client_email(value):
+    email = str(value or '').strip()
+    return email if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) else ''
+
+
+def build_email_preview(data):
+    recipient = valid_client_email(data.get('email'))
+    name = normalize_client_name(data.get('name'))
+    last_name = name.split()[-1] if name else ''
+    civility = normalize_civility(data.get('civility'))
+    greeting = (
+        f"Bonjour {civility} {last_name},"
+        if civility in ('M.', 'Mme') and last_name
+        else f"Bonjour {name}," if name else "Bonjour,"
+    )
+    ods_num = str(data.get('odsNum') or 'ODS').strip()
+    project = str(data.get('project_title') or data.get('service') or 'votre projet').strip()
+    address = client_contact_fields(data)['address']
+    subject = f"{ods_num} – Offre de service – {project}"
+    body = (
+        f"{greeting}\n\n"
+        f"Veuillez trouver ci-joint notre offre de service {ods_num} concernant "
+        f"{project.lower()} pour le projet situé au {address}.\n\n"
+        "N'hésitez pas à nous contacter pour toute question.\n\n"
+        "Cordialement,\n\n"
+        "Arash Rohani, ing., P.Eng.\n"
+        "Président – Ingénieur en structure\n"
+        "Métra Structure Inc.\n"
+        "arash.rohani@metrastructure.ca | (438) 867-4131"
+    )
+    return recipient, subject, body
+
+
+def graph_access_token():
+    if not all((MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, EMAIL_SENDER)):
+        raise RuntimeError("Connexion Microsoft 365 non configurée.")
+    response = req.post(
+        f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token",
+        data={
+            'client_id': MS_CLIENT_ID,
+            'client_secret': MS_CLIENT_SECRET,
+            'scope': 'https://graph.microsoft.com/.default',
+            'grant_type': 'client_credentials',
+        },
+        timeout=20,
+    )
+    if response.status_code != 200:
+        logger.error("Microsoft token error: %s %s", response.status_code, response.text[:300])
+        raise RuntimeError("Authentification Microsoft 365 impossible.")
+    return response.json()['access_token']
+
+
+def send_ods_email(data):
+    recipient, subject, body = build_email_preview(data)
+    if not recipient:
+        raise ValueError("Le courriel du client est manquant ou invalide.")
+    pdf = generate_pdf(data)
+    pdf.seek(0)
+    pdf_bytes = pdf.read()
+    filename = "{}_{}.pdf".format(
+        data.get('odsNum', 'ODS'),
+        (data.get('name') or 'client').replace(' ', '-'),
+    )
+    payload = {
+        'message': {
+            'subject': subject,
+            'body': {'contentType': 'Text', 'content': body},
+            'toRecipients': [
+                {'emailAddress': {'address': recipient}}
+            ],
+            'attachments': [{
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                'name': filename,
+                'contentType': 'application/pdf',
+                'contentBytes': base64.b64encode(pdf_bytes).decode('ascii'),
+            }],
+        },
+        'saveToSentItems': True,
+    }
+    token = graph_access_token()
+    sender = urllib.parse.quote(EMAIL_SENDER, safe='')
+    response = req.post(
+        f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        json=payload,
+        timeout=45,
+    )
+    if response.status_code != 202:
+        logger.error("Microsoft sendMail error: %s %s", response.status_code, response.text[:500])
+        raise RuntimeError("Microsoft 365 a refusé l'envoi du courriel.")
+    return recipient, subject
+
+
+def show_email_confirmation(chat_id, uid):
+    uid = str(uid)
+    data = user_data.get(uid, {})
+    recipient, subject, body = build_email_preview(data)
+    if not recipient:
+        tg(chat_id, "⚠️ Aucun courriel client valide. Le PDF n'a pas été envoyé par courriel.")
+        return
+    data['email_subject'] = subject
+    data['email_body'] = body
+    data['email_recipient'] = recipient
+    data['email_sent_at'] = None
+    user_data[uid] = data
+    save_user_data()
+    preview = (
+        "✉️ Aperçu du courriel\n\n"
+        f"De : {EMAIL_SENDER}\n"
+        f"À : {recipient}\n"
+        f"Objet : {subject}\n\n"
+        f"{body}\n\n"
+        "Pièce jointe : PDF de l'offre de service"
+    )
+    tg(
+        chat_id,
+        preview,
+        [
+            [{'text': '✅ Confirmer et envoyer', 'callback_data': 'email_send'}],
+            [{'text': '❌ Ne pas envoyer', 'callback_data': 'email_cancel'}],
+        ],
+    )
+
+
+def do_send_email(chat_id, uid):
+    uid = str(uid)
+    data = user_data.get(uid)
+    if not data:
+        tg(chat_id, "❌ Session expirée. Générez une nouvelle offre.")
+        return
+    if data.get('email_sent_at'):
+        tg(chat_id, "⚠️ Ce courriel a déjà été envoyé. Aucun second envoi effectué.")
+        return
+    if data.get('email_sending'):
+        tg(chat_id, "⏳ Envoi déjà en cours.")
+        return
+    data['email_sending'] = True
+    user_data[uid] = data
+    save_user_data()
+    try:
+        tg(chat_id, "⏳ Envoi du courriel via Microsoft 365...")
+        recipient, subject = send_ods_email(data)
+        data['email_sent_at'] = datetime.now().isoformat(timespec='seconds')
+        data['email_sending'] = False
+        user_data[uid] = data
+        save_user_data()
+        tg(
+            chat_id,
+            f"✅ Courriel envoyé à {recipient}\n"
+            f"Objet : {subject}\n"
+            "Une copie est enregistrée dans les éléments envoyés.",
+        )
+    except Exception as exc:
+        data['email_sending'] = False
+        user_data[uid] = data
+        save_user_data()
+        logger.error("ODS email error: %s", exc)
+        tg(chat_id, f"❌ Envoi impossible : {exc}")
+
+
 def do_pdf(chat_id, uid):
     uid = str(uid)
     d = user_data.get(uid)
@@ -755,44 +919,13 @@ def do_pdf(chat_id, uid):
         logger.info(f"Generating PDF for {d.get('name','?')}")
         tg(chat_id, "⏳ Génération PDF...")
         buf = generate_pdf(d)
-        fname = "{}_{}.pdf".format(d.get('odsNum','ODS'), (d.get('name') or 'client').replace(' ','-'))
+        fname = "{}_{}.pdf".format(
+            d.get('odsNum', 'ODS'),
+            (d.get('name') or 'client').replace(' ', '-'),
+        )
         logger.info(f"PDF generated, sending {fname}")
         tg_doc(chat_id, buf, fname, f"✅ PDF — ${d['price']:,} CAD")
-        # Now send email draft
-        try:
-            client_email = d.get('email') or 'Non indiqué'
-            client_name = d.get('name') or ''
-            ods_num2 = d.get('odsNum') or ''
-            service2 = d.get('service') or ''
-            addr2 = (d.get('addr') or '').replace('\n', ', ')
-            name_parts2 = client_name.strip().split()
-            first_name2 = name_parts2[0] if name_parts2 else ''
-            last_name2 = name_parts2[-1] if len(name_parts2) > 1 else client_name
-            female_names2 = ('marie','sophie','julie','jessica','isabelle','nathalie','caroline',
-                            'maude','cindy','josiane','véronique','stephanie','catherine','sarah',
-                            'laura','emma','alice','claire','anne','christine','michèle','lucie',
-                            'audrey','camille','chantal','diane','france','ginette','helene','lea',
-                            'manon','nicole','patricia','rachel','sylvie','valerie','yasmine')
-            female_endings2 = ('a','ie','ine','elle','ette','anne','ène')
-            fn2 = first_name2.lower().rstrip('.')
-            is_female2 = fn2 in female_names2 or any(fn2.endswith(e) for e in female_endings2)
-            title2 = "Mme" if is_female2 else "M."
-            body2 = (
-                "Bonjour " + title2 + " " + last_name2 + ",\n\n"
-                "Veuillez trouver ci-joint notre offre de service " + ods_num2
-                + " concernant " + service2.lower()
-                + " pour le projet situé au " + addr2 + ".\n\n"
-                "N'hésitez pas à nous contacter pour toute question.\n\n"
-                "Cordialement,"
-            )
-            full = (
-                client_email + "\n"
-                + ods_num2 + " – Offre de service – " + client_name + "\n\n"
-                + body2
-            )
-            tg(chat_id, full)
-        except Exception as e2:
-            logger.error('email after pdf error: ' + str(e2))
+        show_email_confirmation(chat_id, uid)
     except Exception as e:
         import traceback
         logger.error(f"do_pdf error: {e}")
@@ -870,6 +1003,10 @@ def handle_update(data):
                 else:
                     do_excel(chat_id, uid)
                     do_pdf(chat_id, uid)
+            elif cdata == 'email_send':
+                executor.submit(do_send_email, chat_id, uid)
+            elif cdata == 'email_cancel':
+                tg(chat_id, "✅ Courriel non envoyé. Le PDF reste disponible dans Telegram.")
             elif cdata == 'num_ok':
                 d = user_data.get(uid, {})
                 d['project_num'] = d.get('suggested_num', '000')
