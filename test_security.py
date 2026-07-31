@@ -54,6 +54,7 @@ def test_taxes_are_always_extra_without_a_question():
 
 def test_pdf_layout_is_bounded_and_compact():
     assert "topMargin=3.8*cm, bottomMargin=2.15*cm" in SOURCE
-    assert "size=8.5, leading=10.2" in SOURCE
+    assert "size=9.5, leading=11.7" in SOURCE
+    assert "sn2=s('n2',size=8.5,leading=10.2)" in SOURCE
     assert "for line in raw[:4]" in SOURCE
     assert "if len(compact_line) > 140" in SOURCE
