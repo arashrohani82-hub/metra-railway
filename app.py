@@ -527,7 +527,6 @@ def generate_pdf(data):
         story.append(Paragraph(f'<b>{heading}</b>', sh))
         story.append(Paragraph(text, sj))
 
-    story.append(PageBreak())
     sn2=s('n2',size=8.5,leading=10.2)
     sb2=s('b2',font='Helvetica-Bold',size=8.5,leading=10.2)
     sh2=s('h2',font='Helvetica-Bold',size=8.5,leading=10.2,sb=2,sa=1)
