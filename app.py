@@ -160,12 +160,12 @@ MISSING_QUESTIONS = {
 }
 
 def get_missing_fields(d):
-    missing = []
-    for key in ['name', 'phone', 'email']:
-        val = (d.get(key) or '').strip()
-        if not val or val in ('-', 'None'):
-            missing.append(key)
-    return missing
+    # The client name is required. Missing contact details use formal placeholders
+    # in the preview, Excel and PDF instead of blocking the ODS workflow.
+    name = normalize_client_name(d.get('name'))
+    d['name'] = name
+    d['civility'] = normalize_civility(d.get('civility'))
+    return [] if name and name not in ('-', 'None') else ['name']
 
 def show_format_buttons(chat_id, d):
     try:
@@ -180,10 +180,10 @@ def show_format_buttons(chat_id, d):
     lines = [
         "✅ *Prêt à générer*",
         "",
-        "👤 " + (d.get('name') or '—'),
-        "📍 " + (d.get('addr') or '—'),
-        "📞 " + (d.get('phone') or '—'),
-        "📧 " + (d.get('email') or '—'),
+        "👤 " + client_identity(d),
+        "📍 " + client_contact_fields(d)['address'],
+        "📞 " + client_contact_fields(d)['phone'],
+        "📧 " + client_contact_fields(d)['email'],
         "🏠 " + (d.get('property_type') or '—'),
         "⏱️ " + (d.get('delai') or '—'),
         "🧾 Taxes : " + (d.get('taxes') or '—'),
@@ -428,6 +428,42 @@ def draw_header_footer(canvas, doc):
     canvas.drawRightString(W-1.8*cm, 0.6*cm, f'{doc.page} | Page')
     canvas.restoreState()
 
+def normalize_client_name(value):
+    """Trim repeated whitespace and remove a civility already included in the name."""
+    name = re.sub(r'\\s+', ' ', str(value or '')).strip()
+    name = re.sub(r'^(?:M\\.?|Mme|Mlle|Monsieur|Madame)\\s+', '', name, flags=re.IGNORECASE)
+    return name
+
+
+def normalize_civility(value):
+    """Return only an approved French civility; stay neutral when uncertain."""
+    raw = re.sub(r'\\s+', '', str(value or '')).lower()
+    if raw in ('m', 'm.', 'monsieur', 'mr'):
+        return 'M.'
+    if raw in ('mme', 'madame', 'mrs', 'ms'):
+        return 'Mme'
+    return 'M./Mme'
+
+
+def client_identity(data):
+    name = normalize_client_name(data.get('name'))
+    civility = normalize_civility(data.get('civility'))
+    return f"{civility} {name or 'À compléter'}"
+
+
+def client_contact_fields(data):
+    addr = ', '.join(
+        line.strip() for line in str(data.get('addr') or '').split('\\n') if line.strip()
+    )
+    phone = str(data.get('phone') or '').strip()
+    email = str(data.get('email') or '').strip()
+    return {
+        'address': addr or 'À confirmer',
+        'phone': phone or 'À compléter',
+        'email': email or 'À compléter',
+    }
+
+
 def _build_service_desc(data):
     """Max 4 short bullet lines for PDF table cell."""
     # Priority: service_lines from extraction
@@ -467,11 +503,11 @@ def generate_pdf(data):
 
     story.append(Paragraph(f'Date :  {data.get("date", datetime.now().strftime("%Y-%m-%d"))}', sr))
     story.append(Spacer(1, 3))
-    story.append(Paragraph(f'M./Mme {data.get("name") or "—"}', sn))
-    addr_single = ', '.join(l.strip() for l in (str(data.get('addr') or '')).split('\n') if l.strip())
-    story.append(Paragraph('Adresse : ' + (addr_single or '—'), sn))
-    story.append(Paragraph(f'Cell.: {data["phone"]}', sn))
-    story.append(Paragraph(f'Courriel : {data["email"]}', sn))
+    contact = client_contact_fields(data)
+    story.append(Paragraph(client_identity(data), sn))
+    story.append(Paragraph('Adresse : ' + contact['address'], sn))
+    story.append(Paragraph('Cell. : ' + contact['phone'], sn))
+    story.append(Paragraph('Courriel : ' + contact['email'], sn))
     story.append(Spacer(1, 3))
     story.append(Paragraph(f'<b>{data["odsNum"]}</b>', sn))
     story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | MÉTRA STRUCTURE INC.', sc))
@@ -570,10 +606,11 @@ def generate_excel(data):
     shutil.copy(template, out_path)
     wb = openpyxl.load_workbook(out_path)
     ws = wb['ODS']
-    ws['B7'] = f"M./Mme {data.get('name') or '—'}"
-    ws['B8'] = (data.get('addr') or '').replace('\n', ', ')
-    ws['B9'] = f"Cell.: {data['phone']}"
-    ws['B10'] = f"Courriel : {data['email']}"
+    contact = client_contact_fields(data)
+    ws['B7'] = client_identity(data)
+    ws['B8'] = 'Adresse : ' + contact['address']
+    ws['B9'] = 'Cell. : ' + contact['phone']
+    ws['B10'] = 'Courriel : ' + contact['email']
     ws['B12'] = f"{data.get('odsNum','ODS')}-{(data.get('name') or 'client').replace(' ','-')}"
     service_lines = data.get('service_lines') or []
     ws['B47'] = '\n'.join(service_lines[:4]) or data.get('desc', data.get('service',''))
@@ -598,7 +635,8 @@ def do_extract(chat_id, uid, file_id):
         img_b64 = base64.b64encode(img_r.content).decode()
 
         prompt = """Extract only information visibly present in this client document. Do not infer or invent missing information. Return ONLY JSON:
-{"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
+{"client_name":"","client_civility":"M.|Mme|M./Mme","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
+For client_civility: use "M." for a confidently male first name, "Mme" for a confidently female first name, and "M./Mme" when the name is ambiguous or confidence is low. Never guess weakly.
 suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
 suggested_price is only a preliminary internal suggestion in CAD. ONLY JSON."""
 
@@ -618,7 +656,8 @@ suggested_price is only a preliminary internal suggestion in CAD. ONLY JSON."""
         price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
 
         user_data[uid] = {
-            'name': info.get('client_name',''),
+            'name': normalize_client_name(info.get('client_name','')),
+            'civility': normalize_civility(info.get('client_civility')),
             'phone': info.get('phone',''),
             'email': info.get('email',''),
             'addr': info.get('address',''),
@@ -642,7 +681,9 @@ def do_extract_text(chat_id, uid, client_text):
         PROMPT = (
             "Extract only information explicitly present in this client email/text. "
             "Do not infer or invent missing information. Return ONLY JSON with these keys: "
-            "client_name, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
+            "client_name, client_civility, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
+            "For client_civility, return M. for a confidently male first name, Mme for a confidently female first name, "
+            "and M./Mme when the name is ambiguous or confidence is low. Never guess weakly. "
             "For address, extract only the components provided by the client. "
             "Do not infer a postal code, city, province, or country. "
             "suggested_service must be one of: Analyse structurale generale, Inspection et rapport structural, "
@@ -665,7 +706,8 @@ def do_extract_text(chat_id, uid, client_text):
         price = info.get('suggested_price') or PRICES.get(info.get('suggested_service', ''), 3200)
 
         user_data[uid] = {
-            'name': info.get('client_name', ''),
+            'name': normalize_client_name(info.get('client_name', '')),
+            'civility': normalize_civility(info.get('client_civility')),
             'phone': info.get('phone', ''),
             'email': info.get('email', ''),
             'addr': info.get('address', ''),
