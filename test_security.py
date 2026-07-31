@@ -60,3 +60,17 @@ def test_pdf_layout_is_bounded_and_compact():
     assert "if len(compact_line) > 140" in SOURCE
     assert SOURCE.index("6. Présence sur site et logistique") < SOURCE.index("story.append(PageBreak())")
     assert SOURCE.index("story.append(PageBreak())") < SOURCE.index("HONORAIRES – FORFAIT DU PROJET")
+
+
+def test_client_civility_and_missing_contact_placeholders():
+    assert "client_civility" in SOURCE
+    assert "Never guess weakly" in SOURCE
+    assert "def normalize_client_name(value):" in SOURCE
+    assert "def normalize_civility(value):" in SOURCE
+    assert "return 'M./Mme'" in SOURCE
+    assert "'phone': phone or 'À compléter'" in SOURCE
+    assert "'address': addr or 'À confirmer'" in SOURCE
+    assert "'email': email or 'À compléter'" in SOURCE
+    assert "story.append(Paragraph(client_identity(data), sn))" in SOURCE
+    assert "ws['B7'] = client_identity(data)" in SOURCE
+    assert "return [] if name" in SOURCE
