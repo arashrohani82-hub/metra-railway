@@ -114,9 +114,16 @@ def build_ods_num(d):
     B = name[0].upper() if name else 'X'
     service = (d.get('service') or '')
     C = service[0].upper() if service else 'X'
-    return f"ODS{yr}-{num}-{A}{B}{C}"
+    code = re.sub(r'[^A-Z]', '', str(d.get('file_code') or '').upper())[:3]
+    if len(code) != 3:
+        code = f"{A}{B}{C}"
+    return f"ODS{yr}-{num}-{code}"
 
 def build_short_title(d):
+    project_title = (d.get('project_title') or '').strip()
+    if project_title:
+        cleaned = re.sub(r'[^\wÀ-ÿ-]+', '-', project_title, flags=re.UNICODE)
+        return cleaned.strip('-')[:70]
     service = (d.get('service') or '').strip().lower()
     if 'avis' in service:
         return 'Avis-expert'
@@ -149,13 +156,11 @@ MISSING_QUESTIONS = {
     'addr':  '📍 Adresse complète du projet?\n(ex: 247 Rue Beaumont\nGranby QC J2G 8S4\nCanada)',
     'project_num': '🔢 Numéro du projet? (ex: 062)',
     'delai': '⏱️ Délai estimé (jours ouvrables)? (ex: 8)',
+    'special_note': '📝 Note spéciale à ajouter? Écrivez la note ou tapez « aucune ».',
 }
 
 def get_missing_fields(d):
     missing = []
-    # project_num first
-    if not d.get('project_num'):
-        missing.append('project_num')
     for key in ['name', 'phone', 'email']:
         val = (d.get(key) or '').strip()
         if not val or val in ('-', 'None'):
@@ -181,16 +186,18 @@ def show_format_buttons(chat_id, d):
         "📧 " + (d.get('email') or '—'),
         "🏠 " + (d.get('property_type') or '—'),
         "⏱️ " + (d.get('delai') or '—'),
+        "🧾 Taxes : " + (d.get('taxes') or '—'),
+        "📝 Note : " + (d.get('special_note') or 'Aucune'),
         "",
-        "🔧 " + (d.get('service') or '—'),
+        "🔧 " + (d.get('project_title') or d.get('service') or '—'),
         "💰 $" + "{:,}".format(price) + " CAD",
         "📄 " + ods,
         "",
-        "Format?",
+        "Tous les éléments sont confirmés. Générer les fichiers?",
     ]
     msg = "\n".join(lines)
     kb = [
-        [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
+        [{'text': '📦 Générer Excel + PDF', 'callback_data': 'both'}],
         [{'text': '✏️ Changer prix', 'callback_data': 'price'}],
         [{'text': '🔄 Nouveau client', 'callback_data': 'nouveau'}],
     ]
@@ -203,22 +210,27 @@ def ask_desc_options(chat_id, uid):
     uid = str(uid)
     d = user_data.get(uid, {})
     try:
-        tg(chat_id, "✍️ Génération des descriptions techniques...")
+        tg(chat_id, "✍️ Préparation du contenu technique de l’ODS...")
         service = d.get('service', '')
         raw_desc = d.get('desc', '')
         property_type = d.get('property_type', '')
         addr = d.get('addr', '')
-        # If service_lines already extracted, use them as option 1
-        existing_lines = d.get('service_lines', [])
-        existing_desc = d.get('desc', '')
-
         prompt = (
-            "You are a structural engineering expert at Métra Structure Inc. "
-            "Generate exactly 3 different professional mandate descriptions IN FRENCH (2-3 sentences each, technical). "
-            "Service: " + service + ". Property: " + property_type + ". "
-            "Address: " + addr + ". Context: " + raw_desc + ". "
-            "Make each option distinct in approach and detail level. "
-            "Return ONLY JSON array: [\"desc1\", \"desc2\", \"desc3\"]"
+            "You prepare structural-engineering offers of service for Métra Structure Inc. "
+            "Write in professional, concise French. Never invent a test, deliverable, quantity, "
+            "investigation extent, code review, design task, or professional commitment that the "
+            "client did not request or that the context does not justify. Avoid promotional wording. "
+            "Prepare ONE proposal only, using this exact JSON schema: "
+            "{\"project_title\":\"short professional title\","
+            "\"file_code\":\"relevant 3-letter uppercase code\","
+            "\"short_mandate\":\"one short professional paragraph, maximum 70 words\","
+            "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\",\"line 4\"]}. "
+            "Use a maximum of 4 service lines. Each line must be a specific engineering action, "
+            "short enough for an ODS table, and end without a period. Include 'le cas échéant' or "
+            "'selon le mandat' wherever the scope is conditional. "
+            "Client request/context: " + raw_desc + ". "
+            "Initially detected service: " + service + ". Property: " + property_type + ". "
+            "Project address: " + addr + ". Return ONLY valid JSON."
         )
         response = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=800,
@@ -226,21 +238,47 @@ def ask_desc_options(chat_id, uid):
         )
         result = "".join(b.text for b in response.content if hasattr(b, "text"))
         result = result.replace("```json", "").replace("```", "").strip()
-        options = json.loads(result)
-        d["desc_options"] = options
+        proposal = json.loads(result)
+        service_lines = [
+            str(line).strip().rstrip(".;") + ";"
+            for line in proposal.get("service_lines", [])[:4]
+            if str(line).strip()
+        ]
+        short_mandate = str(proposal.get("short_mandate") or raw_desc).strip()
+        d["project_title"] = str(proposal.get("project_title") or service).strip()
+        d["file_code"] = re.sub(
+            r"[^A-Z]", "", str(proposal.get("file_code") or "ODS").upper()
+        )[:3].ljust(3, "X")
+        d["desc"] = short_mandate
+        d["service_lines"] = service_lines
+        d["desc_options"] = [short_mandate]
         user_data[uid] = d
         save_user_data()
-        # Show full descriptions then buttons
-        msg_lines = ["📋 *Choisissez la description technique:*\n"]
-        for i, opt in enumerate(options):
-            msg_lines.append(f"*{i+1}.* {opt}\n")
-        msg_lines.append("_Appuyez sur le bouton correspondant:_")
+        provisional_name = (
+            f"ODS{datetime.now().strftime('%y')}-XXX-{d['file_code']}-"
+            f"{d['project_title']}"
+        )
+        msg_lines = [
+            "📋 Proposition technique",
+            "",
+            "Titre : " + d["project_title"],
+            "Nom du fichier : " + provisional_name,
+            "",
+            "Mandat court :",
+            short_mandate,
+            "",
+            "Services :",
+        ]
+        msg_lines.extend("• " + line for line in service_lines)
         tg(chat_id, "\n".join(msg_lines))
-        kb = []
-        for i in range(len(options)):
-            kb.append([{"text": f"✅ Option {i+1}", "callback_data": "desc_" + str(i)}])
-        kb.append([{"text": "✏️ Écrire ma propre description", "callback_data": "desc_custom"}])
-        tg(chat_id, "👇 Votre choix:", kb)
+        tg(
+            chat_id,
+            "Confirmer ce contenu avant de compléter les paramètres de l’ODS?",
+            [
+                [{"text": "✅ Confirmer", "callback_data": "desc_0"}],
+                [{"text": "✏️ Modifier le mandat", "callback_data": "desc_custom"}],
+            ],
+        )
     except Exception as e:
         import traceback
         logger.error("ask_desc_options error: " + str(e) + "\n" + traceback.format_exc())
@@ -291,11 +329,42 @@ def ask_next_missing(chat_id, uid):
         kb = [[{'text': '✅ ' + suggested, 'callback_data': 'num_ok'}],
               [{'text': '✏️ Autre numéro', 'callback_data': 'num_edit'}]]
         tg(chat_id, "🔢 Numéro suggéré: *" + suggested + "*", kb)
+    elif not d.get('price_confirmed'):
+        d['waiting_field'] = None
+        user_data[uid] = d
+        save_user_data()
+        suggested_price = int(d.get('price') or 0)
+        tg(
+            chat_id,
+            f"💰 Honoraires proposés : {suggested_price:,} $ CAD\nConfirmer?",
+            [
+                [{"text": "✅ Confirmer le prix", "callback_data": "price_ok"}],
+                [{"text": "✏️ Modifier le prix", "callback_data": "price"}],
+            ],
+        )
     elif not d.get('delai'):
         d['waiting_field'] = 'delai'
         user_data[uid] = d
         save_user_data()
         tg(chat_id, MISSING_QUESTIONS['delai'])
+    elif not d.get('taxes'):
+        tg(
+            chat_id,
+            "🧾 Les taxes sont-elles incluses ou en sus?",
+            [[
+                {"text": "En sus", "callback_data": "tax_extra"},
+                {"text": "Incluses", "callback_data": "tax_included"},
+            ]],
+        )
+    elif not d.get('special_note_confirmed'):
+        tg(
+            chat_id,
+            "📝 Une note spéciale à ajouter?",
+            [[
+                {"text": "Aucune", "callback_data": "note_none"},
+                {"text": "Ajouter une note", "callback_data": "note_add"},
+            ]],
+        )
     else:
         show_format_buttons(chat_id, d)
 
@@ -457,6 +526,17 @@ def generate_pdf(data):
     ]))
     story.append(ht)
     story.append(Spacer(1, 8))
+    story.append(Paragraph(
+        '<b>Taxes : </b>' + (data.get('taxes') or 'En sus'),
+        sn,
+    ))
+    if data.get('special_note'):
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            '<b>Note spéciale : </b>' + str(data.get('special_note')),
+            sn,
+        ))
+    story.append(Spacer(1, 8))
     story.append(Paragraph('<b>AUTRES FRAIS (SI APPLICABLE)</b>', sb_))
     story.append(Spacer(1, 5))
     story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10') + ' jours ouvrables suivant la visite finale sur site.', sn))
@@ -493,7 +573,8 @@ def generate_excel(data):
     ws['B9'] = f"Cell.: {data['phone']}"
     ws['B10'] = f"Courriel : {data['email']}"
     ws['B12'] = f"{data.get('odsNum','ODS')}-{(data.get('name') or 'client').replace(' ','-')}"
-    ws['B47'] = data.get('desc', data.get('service',''))
+    service_lines = data.get('service_lines') or []
+    ws['B47'] = '\n'.join(service_lines[:4]) or data.get('desc', data.get('service',''))
     ws['C47'] = 'Forfait'
     ws['D47'] = 1
     ws['E47'] = float(data['price'])
@@ -514,10 +595,10 @@ def do_extract(chat_id, uid, file_id):
         img_r = req.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}', timeout=15)
         img_b64 = base64.b64encode(img_r.content).decode()
 
-        prompt = """Extract client info from this document. Return ONLY JSON:
+        prompt = """Extract only information visibly present in this client document. Do not infer or invent missing information. Return ONLY JSON:
 {"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
 suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
-suggested_price: CAD integer. ONLY JSON."""
+suggested_price is only a preliminary internal suggestion in CAD. ONLY JSON."""
 
         response = client.messages.create(
             model="claude-sonnet-4-6", max_tokens=1200,
@@ -557,9 +638,11 @@ def do_extract_text(chat_id, uid, client_text):
     uid = str(uid)
     try:
         PROMPT = (
-            "Extract client info from this email/text. Return ONLY JSON with these keys: "
+            "Extract only information explicitly present in this client email/text. "
+            "Do not infer or invent missing information. Return ONLY JSON with these keys: "
             "client_name, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
-            "For address: extract ALL components (street, city, province, postal code, country). ""Format: \"123 Rue Exemple\\nMontréal QC H1A 1A1\\nCanada\". ""If postal code missing, infer from city. If province missing, infer from city name. Always end with Canada. "
+            "For address, extract only the components provided by the client. "
+            "Do not infer a postal code, city, province, or country. "
             "suggested_service must be one of: Analyse structurale generale, Inspection et rapport structural, "
             "Avis d expert stabilisation et renforcement, Enlevement de mur porteur, Inspection des fondations, "
             "Evaluation des fissures et desordres structuraux, Mur de soutenement, Conception structurale complete, "
@@ -591,30 +674,7 @@ def do_extract_text(chat_id, uid, client_text):
             'date': datetime.now().strftime('%Y-%m-%d'),
         }
         save_user_data()
-
-        def s(v): return str(v) if v else '—'
-        name = s(info.get('client_name'))
-        addr = s(info.get('address'))
-        phone = s(info.get('phone'))
-        email = s(info.get('email'))
-        ptype = s(info.get('property_type'))
-        service = s(info.get('suggested_service'))
-        msg_out = (
-            "✅ *Informations extraites*\n\n"
-            "👤 " + name + "\n"
-            "📍 " + addr + "\n"
-            "📞 " + phone + "\n"
-            "📧 " + email + "\n"
-            "🏠 " + ptype + "\n\n"
-            "🔧 " + service + "\n"
-            "💰 $" + "{:,}".format(price) + " CAD\n"
-            "📄 " + ods_num + "\n\nFormat?"
-        )
-        kb = [
-            [{'text': '📊 Excel', 'callback_data': 'xl'}, {'text': '📄 PDF', 'callback_data': 'pdf'}],
-            [{'text': '✏️ Changer prix', 'callback_data': 'price'}]
-        ]
-        tg(chat_id, msg_out, kb)
+        ask_next_missing(chat_id, uid)
     except Exception as e:
         import traceback
         logger.error("do_extract_text error: " + str(e))
@@ -757,12 +817,15 @@ def handle_update(data):
             except:
                 pass
             logger.info(f"CB: {cdata} uid={uid} has_data={uid in user_data} keys={list(user_data.keys())}")
-            if cdata in ('xl', 'pdf'):
+            if cdata in ('xl', 'pdf', 'both'):
                 if uid not in user_data:
                     tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
                 elif cdata == 'xl':
                     do_excel(chat_id, uid)
+                elif cdata == 'pdf':
+                    do_pdf(chat_id, uid)
                 else:
+                    do_excel(chat_id, uid)
                     do_pdf(chat_id, uid)
             elif cdata == 'num_ok':
                 d = user_data.get(uid, {})
@@ -777,6 +840,13 @@ def handle_update(data):
                 user_data[uid] = d
                 save_user_data()
                 tg(chat_id, "🔢 Entrez le numéro (ex: 082):")
+            elif cdata == 'price_ok':
+                d = user_data.get(uid, {})
+                d['price_confirmed'] = True
+                d['waiting_field'] = None
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
             elif cdata == 'addr_ok':
                 d = user_data.get(uid, {})
                 d['addr_confirmed'] = True
@@ -819,7 +889,27 @@ def handle_update(data):
                 d['waiting_price'] = True
                 d['waiting_field'] = None
                 user_data[uid] = d
+                save_user_data()
                 tg(chat_id, "💰 Entrez le nouveau prix (ex: 3500):")
+            elif cdata in ('tax_extra', 'tax_included'):
+                d = user_data.get(uid, {})
+                d['taxes'] = 'En sus' if cdata == 'tax_extra' else 'Incluses'
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
+            elif cdata == 'note_none':
+                d = user_data.get(uid, {})
+                d['special_note'] = ''
+                d['special_note_confirmed'] = True
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
+            elif cdata == 'note_add':
+                d = user_data.get(uid, {})
+                d['waiting_field'] = 'special_note'
+                user_data[uid] = d
+                save_user_data()
+                tg(chat_id, MISSING_QUESTIONS['special_note'])
 
         elif msg:
             uid = str(msg['from']['id'])
@@ -863,10 +953,11 @@ def handle_update(data):
                         price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
                         d['price'] = price
                         d['waiting_price'] = False
+                        d['price_confirmed'] = True
                         d['waiting_field'] = None
                         user_data[uid] = d
                         save_user_data()
-                        show_format_buttons(chat_id, d)
+                        ask_next_missing(chat_id, uid)
                     except:
                         tg(chat_id, "❌ Nombre invalide (ex: 3500)")
                 elif d.get('waiting_field'):
@@ -880,6 +971,10 @@ def handle_update(data):
                             d['addr_confirmed'] = True
                         if field == 'desc':
                             d['desc_confirmed'] = True
+                        if field == 'special_note':
+                            if text.strip().lower() in ('aucune', 'none', 'non'):
+                                d['special_note'] = ''
+                            d['special_note_confirmed'] = True
                         user_data[uid] = d
                         save_user_data()
                         ask_next_missing(chat_id, uid)
