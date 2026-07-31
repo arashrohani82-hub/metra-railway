@@ -1,5 +1,6 @@
 import urllib.parse
 import re
+import hmac
 import os, json, io, shutil, base64, logging
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
@@ -23,6 +24,15 @@ executor = ThreadPoolExecutor(max_workers=10)
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
+SETUP_SECRET = os.environ.get('SETUP_SECRET', '')
+ALLOWED_USERS = {
+    int(value.strip())
+    for value in os.environ.get('ALLOWED_TELEGRAM_USER_IDS', '').split(',')
+    if value.strip().isdigit()
+}
+DATA_DIR = os.environ.get('DATA_DIR', '/data')
+os.makedirs(DATA_DIR, exist_ok=True)
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
 W, H = letter
@@ -52,7 +62,7 @@ PRICES = {
 user_data = {}
 
 # ── Persistent storage (survives Railway restarts) ──
-DATA_FILE = '/tmp/user_data.json'
+DATA_FILE = os.path.join(DATA_DIR, 'offre_user_data.json')
 
 def load_user_data():
     global user_data
@@ -76,7 +86,7 @@ load_user_data()
 
 def get_next_project_num():
     try:
-        counter_file = '/tmp/ods_counter.json'
+        counter_file = os.path.join(DATA_DIR, 'ods_counter.json')
         if os.path.exists(counter_file):
             with open(counter_file, 'r') as f:
                 cdata = json.load(f)
@@ -290,9 +300,24 @@ def ask_next_missing(chat_id, uid):
         show_format_buttons(chat_id, d)
 
 
-def tg(chat_id, text, keyboard=None):
+def main_menu():
+    return {
+        'keyboard': [
+            [{'text': '📝 Nouvelle offre'}],
+            [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
+            [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
+        ],
+        'resize_keyboard': True,
+        'is_persistent': True,
+        'input_field_placeholder': 'Photo ou texte du client…',
+    }
+
+
+def tg(chat_id, text, keyboard=None, reply_markup=None):
     payload = {'chat_id': chat_id, 'text': text}
-    if keyboard:
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
+    elif keyboard:
         payload['reply_markup'] = {'inline_keyboard': keyboard}
     try:
         r2 = req.post(
@@ -676,8 +701,15 @@ def index():
     with open(os.path.join(BASE, 'index.html'), 'r', encoding='utf-8') as f:
         return Response(f.read(), mimetype='text/html')
 
+def has_setup_access():
+    supplied = request.headers.get('X-Setup-Secret', '') or request.args.get('key', '')
+    return bool(SETUP_SECRET) and hmac.compare_digest(supplied, SETUP_SECRET)
+
+
 @app.route('/api/extract', methods=['POST'])
 def api_extract():
+    if not has_setup_access():
+        return jsonify({'error': 'forbidden'}), 403
     data = request.json
     prompt = """Extract client info. Return ONLY JSON: {"client_name":"","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}"""
     response = client.messages.create(
@@ -692,6 +724,8 @@ def api_extract():
 
 @app.route('/api/generate-pdf', methods=['POST'])
 def api_pdf():
+    if not has_setup_access():
+        return jsonify({'error': 'forbidden'}), 403
     data = request.json
     buf = generate_pdf(data)
     filename = f"{data.get('odsNum','ODS')}_{data.get('name','client').replace(' ','-')}.pdf"
@@ -702,6 +736,15 @@ def handle_update(data):
     try:
         msg = data.get('message', {})
         cb = data.get('callback_query', {})
+
+        actor = cb.get('from') if cb else msg.get('from')
+        actor_id = actor.get('id') if actor else None
+        chat = cb.get('message', {}).get('chat', {}) if cb else msg.get('chat', {})
+        chat_id_for_denial = chat.get('id')
+        if actor_id not in ALLOWED_USERS:
+            if chat_id_for_denial:
+                tg(chat_id_for_denial, "⛔ Ce bot est privé.")
+            return
 
         if cb:
             uid = str(cb['from']['id'])
@@ -783,10 +826,36 @@ def handle_update(data):
             chat_id = msg['chat']['id']
             if msg.get('text'):
                 text = msg['text']
-                if text in ('/start', '/nouveau'):
+                if text in ('/start', '/nouveau', '📝 Nouvelle offre'):
                     user_data.pop(uid, None)
                     save_user_data()
-                    tg(chat_id, "👋 *Métra Structure — Nouveau client*\n\n📸 Envoyez une photo ou collez le texte du client.")
+                    tg(
+                        chat_id,
+                        "👋 Métra Structure — Nouvelle offre\n\n"
+                        "Envoyez une photo ou collez le texte/courriel du client.",
+                        reply_markup=main_menu(),
+                    )
+                    return
+                if text in ('/annuler', '/cancel', '❌ Annuler'):
+                    user_data.pop(uid, None)
+                    save_user_data()
+                    tg(chat_id, "✅ Opération annulée.", reply_markup=main_menu())
+                    return
+                if text in ('/aide', '/help', '❓ Aide'):
+                    tg(
+                        chat_id,
+                        "1. Envoyez une photo ou le texte du client.\n"
+                        "2. Vérifiez les informations extraites.\n"
+                        "3. Choisissez la description et le prix.\n"
+                        "4. Générez le PDF ou Excel.",
+                        reply_markup=main_menu(),
+                    )
+                    return
+                if text == '📷 Envoyer une photo':
+                    tg(chat_id, "📷 Envoyez maintenant une photo claire du message ou document du client.", reply_markup=main_menu())
+                    return
+                if text == '📋 Coller un texte':
+                    tg(chat_id, "📋 Collez ici le courriel ou le texte complet du client.", reply_markup=main_menu())
                     return
                 d = user_data.get(uid, {})
                 if d.get('waiting_price'):
@@ -837,6 +906,10 @@ def handle_update(data):
 
 @app.route('/webhook/telegram', methods=['POST'])
 def webhook():
+    if WEBHOOK_SECRET:
+        supplied = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+        if not hmac.compare_digest(supplied, WEBHOOK_SECRET):
+            return 'forbidden', 403
     data = request.get_json(force=True, silent=True)
     if data:
         executor.submit(handle_update, data)
@@ -844,22 +917,52 @@ def webhook():
 
 @app.route('/setup')
 def setup():
-    """Register Telegram webhook — call once after deploy"""
-    railway_url = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    """Register the secured Telegram webhook and command menu."""
+    if not has_setup_access():
+        return 'forbidden', 403
+    railway_url = os.environ.get('PUBLIC_URL', '').rstrip('/')
     if not railway_url:
-        railway_url = 'web-production-e1b99.up.railway.app'
-    webhook_url = f"https://{railway_url}/webhook/telegram"
-    r = req.post(
+        domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+        railway_url = f"https://{domain}" if domain else ''
+    if not railway_url:
+        return jsonify({'error': 'PUBLIC_URL is required'}), 400
+
+    webhook_payload = {
+        'url': f"{railway_url}/webhook/telegram",
+        'allowed_updates': ['message', 'callback_query'],
+    }
+    if WEBHOOK_SECRET:
+        webhook_payload['secret_token'] = WEBHOOK_SECRET
+
+    webhook_result = req.post(
         f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
-        json={"url": webhook_url, "allowed_updates": ["message","callback_query"]},
-        timeout=15
-    )
-    info = req.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo', timeout=10)
-    return jsonify({"set": r.json(), "info": info.json()})
+        json=webhook_payload,
+        timeout=15,
+    ).json()
+    commands_result = req.post(
+        f'https://api.telegram.org/bot{BOT_TOKEN}/setMyCommands',
+        json={
+            'commands': [
+                {'command': 'start', 'description': 'Démarrer et afficher le menu'},
+                {'command': 'nouveau', 'description': 'Créer une nouvelle offre'},
+                {'command': 'aide', 'description': "Afficher le guide d'utilisation"},
+                {'command': 'annuler', 'description': "Annuler l'opération en cours"},
+            ]
+        },
+        timeout=15,
+    ).json()
+    return jsonify({
+        'ok': bool(webhook_result.get('ok') and commands_result.get('ok')),
+        'webhook': webhook_result,
+        'commands': commands_result,
+    })
+
 
 @app.route('/status')
 def status():
-    return jsonify({"users": len(user_data), "keys": list(user_data.keys())})
+    if not has_setup_access():
+        return jsonify({'error': 'forbidden'}), 403
+    return jsonify({'status': 'ok', 'active_sessions': len(user_data)})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
