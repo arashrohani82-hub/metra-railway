@@ -41,8 +41,12 @@ def test_files_wait_for_all_confirmations():
         "project_num",
         "price_confirmed",
         "delai",
-        "taxes",
         "special_note_confirmed",
     ):
         assert field in SOURCE
     assert "Générer Excel + PDF" in SOURCE
+
+
+def test_taxes_are_always_extra_without_a_question():
+    assert "Les taxes sont-elles incluses ou en sus?" not in SOURCE
+    assert "data.get('taxes') or 'En sus'" in SOURCE

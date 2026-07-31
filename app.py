@@ -347,15 +347,6 @@ def ask_next_missing(chat_id, uid):
         user_data[uid] = d
         save_user_data()
         tg(chat_id, MISSING_QUESTIONS['delai'])
-    elif not d.get('taxes'):
-        tg(
-            chat_id,
-            "🧾 Les taxes sont-elles incluses ou en sus?",
-            [[
-                {"text": "En sus", "callback_data": "tax_extra"},
-                {"text": "Incluses", "callback_data": "tax_included"},
-            ]],
-        )
     elif not d.get('special_note_confirmed'):
         tg(
             chat_id,
