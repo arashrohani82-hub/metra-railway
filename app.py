@@ -511,7 +511,7 @@ def generate_pdf(data):
     ]], colWidths=[9*cm, 3*cm])
     rt.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(rt)
-    story.append(Spacer(1, 3))
+    story.append(PageBreak())
     story.append(Paragraph('<b>HONORAIRES – FORFAIT DU PROJET</b>', sb2))
     story.append(Spacer(1, 3))
     hon_data = [

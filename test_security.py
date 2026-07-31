@@ -58,3 +58,5 @@ def test_pdf_layout_is_bounded_and_compact():
     assert "sn2=s('n2',size=8.5,leading=10.2)" in SOURCE
     assert "for line in raw[:4]" in SOURCE
     assert "if len(compact_line) > 140" in SOURCE
+    assert SOURCE.index("6. Présence sur site et logistique") < SOURCE.index("story.append(PageBreak())")
+    assert SOURCE.index("story.append(PageBreak())") < SOURCE.index("HONORAIRES – FORFAIT DU PROJET")
