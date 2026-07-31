@@ -438,24 +438,27 @@ def _build_service_desc(data):
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
     result = []
     for line in raw[:4]:
-        result.append('• ' + line.rstrip(';. ') + ';')
+        compact_line = str(line).strip().rstrip(';. ')
+        if len(compact_line) > 140:
+            compact_line = compact_line[:137].rstrip() + '…'
+        result.append('• ' + compact_line + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
 def generate_pdf(data):
     buf = io.BytesIO()
     doc = BaseDocTemplate(buf, pagesize=letter,
         rightMargin=1.8*cm, leftMargin=1.8*cm,
-        topMargin=4.0*cm, bottomMargin=2.4*cm)
+        topMargin=3.8*cm, bottomMargin=2.15*cm)
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id='normal')
     doc.addPageTemplates([PageTemplate(id='all', frames=frame, onPage=draw_header_footer)])
 
-    def s(name, font='Helvetica', size=10, leading=13, align=TA_LEFT, sb=0, sa=0):
+    def s(name, font='Helvetica', size=8.5, leading=10.2, align=TA_LEFT, sb=0, sa=0):
         return ParagraphStyle(name, fontName=font, fontSize=size, leading=leading,
                               textColor=BLACK, alignment=align, spaceBefore=sb, spaceAfter=sa)
 
-    sn=s('n'); sb_=s('b',font='Helvetica-Bold'); sh=s('h',font='Helvetica-Bold',sb=6,sa=2)
-    sr=s('r',align=TA_RIGHT); sj=s('j',leading=13,sb=3,sa=3)
-    sc=s('cadre',font='Helvetica-Bold',size=10,leading=14,sb=6,sa=4,align=TA_CENTER)
+    sn=s('n'); sb_=s('b',font='Helvetica-Bold'); sh=s('h',font='Helvetica-Bold',sb=3,sa=1)
+    sr=s('r',align=TA_RIGHT); sj=s('j',leading=10.2,sb=1,sa=1)
+    sc=s('cadre',font='Helvetica-Bold',size=9,leading=11,sb=3,sa=2,align=TA_CENTER)
     shb=s('hb',font='Helvetica-Bold',align=TA_CENTER); shn=s('hn',align=TA_CENTER); str_=s('tr',align=TA_RIGHT)
 
     price = float(data.get('price', 3200))
@@ -463,13 +466,13 @@ def generate_pdf(data):
     story = []
 
     story.append(Paragraph(f'Date :  {data.get("date", datetime.now().strftime("%Y-%m-%d"))}', sr))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, 3))
     story.append(Paragraph(f'M./Mme {data.get("name") or "—"}', sn))
     addr_single = ', '.join(l.strip() for l in (str(data.get('addr') or '')).split('\n') if l.strip())
     story.append(Paragraph('Adresse : ' + (addr_single or '—'), sn))
     story.append(Paragraph(f'Cell.: {data["phone"]}', sn))
     story.append(Paragraph(f'Courriel : {data["email"]}', sn))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 3))
     story.append(Paragraph(f'<b>{data["odsNum"]}</b>', sn))
     story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | MÉTRA STRUCTURE INC.', sc))
     story.append(Paragraph(
@@ -491,47 +494,47 @@ def generate_pdf(data):
     story.append(PageBreak())
     story.append(Paragraph('<b>6. Présence sur site et logistique</b>', sh))
     story.append(Paragraph("Toute requête de déplacement doit être transmise au moins 48 heures avant la date prévue.", sj))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
     story.append(Paragraph('<b>TAUX HORAIRES</b>', sb_))
-    story.append(Spacer(1, 3))
+    story.append(Spacer(1, 2))
     rt = Table([[Paragraph(r, str_), Paragraph(v, sn)] for r,v in [
         ('Ingénieur senior :','130 $ /h'),('Ingénieur intermédiaire :','110 $ /h'),
         ('Ingénieur junior :','105 $ /h'),('Technicien :','100 $ /h'),('Dessinateur :','85 $ /h'),
     ]], colWidths=[9*cm, 3*cm])
     rt.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(rt)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 3))
     story.append(Paragraph('<b>HONORAIRES – FORFAIT DU PROJET</b>', sb_))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, 3))
     hon_data = [
         [Paragraph('<b>Description des services</b>',shb),Paragraph('<b>Unité</b>',shb),Paragraph('<b>Quantité</b>',shb),Paragraph('<b>Coût unitaire</b>',shb),Paragraph('<b>Coût total</b>',shb)],
-        [Paragraph(_build_service_desc(data),s('sd',leading=14)),Paragraph('Forfait',shn),Paragraph('1',shn),Paragraph(pf,shn),Paragraph(pf,shn)],
+        [Paragraph(_build_service_desc(data),s('sd',size=8,leading=9.3)),Paragraph('Forfait',shn),Paragraph('1',shn),Paragraph(pf,shn),Paragraph(pf,shn)],
         ['','','',Paragraph('Total des honoraires du projet',str_),Paragraph(f'<b>{pf}</b>',shb)],
     ]
     ht = Table(hon_data, colWidths=[8.5*cm,1.8*cm,1.8*cm,3.8*cm,2.6*cm])
     ht.setStyle(TableStyle([
         ('BOX',(0,0),(-1,-1),0.5,BLACK),('INNERGRID',(0,0),(-1,-1),0.5,BLACK),
-        ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
-        ('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),
+        ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
+        ('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),
         ('VALIGN',(0,0),(-1,-1),'TOP'),('SPAN',(0,2),(2,2)),
     ]))
     story.append(ht)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 4))
     story.append(Paragraph(
         '<b>Taxes : </b>' + (data.get('taxes') or 'En sus'),
         sn,
     ))
     if data.get('special_note'):
-        story.append(Spacer(1, 4))
+        story.append(Spacer(1, 2))
         story.append(Paragraph(
-            '<b>Note spéciale : </b>' + str(data.get('special_note')),
+            '<b>Note spéciale : </b>' + str(data.get('special_note'))[:250],
             sn,
         ))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 4))
     story.append(Paragraph('<b>AUTRES FRAIS (SI APPLICABLE)</b>', sb_))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, 3))
     story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10') + ' jours ouvrables suivant la visite finale sur site.', sn))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 3))
     story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb_))
     for h in [
         "1- Plans architecturaux fournis avant le début du mandat (si disponible);",
@@ -539,15 +542,15 @@ def generate_pdf(data):
         "3- Vérification et approbation par l'architecte non incluses dans la présente offre.",
     ]:
         story.append(Paragraph(h, sn))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 4))
     story.append(Paragraph("Cette offre est valable 30 jours. Pour l'accepter, veuillez compléter les sections suivantes.", sn))
-    story.append(Spacer(1, 16))
+    story.append(Spacer(1, 8))
     sig = Table([
         [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.',sn),Paragraph('<b>Nom du client:</b>',sn)],
         [Paragraph('Président-Ingénieur en structure',sn),''],
         [Paragraph('Métra Structure Inc.',sn),Paragraph('<b>Date:</b>',sn)],
     ], colWidths=[9*cm,8.5*cm])
-    sig.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4)]))
+    sig.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(sig)
     doc.build(story)
     buf.seek(0)
