@@ -452,13 +452,13 @@ def generate_pdf(data):
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id='normal')
     doc.addPageTemplates([PageTemplate(id='all', frames=frame, onPage=draw_header_footer)])
 
-    def s(name, font='Helvetica', size=8.5, leading=10.2, align=TA_LEFT, sb=0, sa=0):
+    def s(name, font='Helvetica', size=9.5, leading=11.7, align=TA_LEFT, sb=0, sa=0):
         return ParagraphStyle(name, fontName=font, fontSize=size, leading=leading,
                               textColor=BLACK, alignment=align, spaceBefore=sb, spaceAfter=sa)
 
-    sn=s('n'); sb_=s('b',font='Helvetica-Bold'); sh=s('h',font='Helvetica-Bold',sb=3,sa=1)
-    sr=s('r',align=TA_RIGHT); sj=s('j',leading=10.2,sb=1,sa=1)
-    sc=s('cadre',font='Helvetica-Bold',size=9,leading=11,sb=3,sa=2,align=TA_CENTER)
+    sn=s('n'); sb_=s('b',font='Helvetica-Bold'); sh=s('h',font='Helvetica-Bold',sb=4,sa=1.5)
+    sr=s('r',align=TA_RIGHT); sj=s('j',leading=11.4,sb=2,sa=2)
+    sc=s('cadre',font='Helvetica-Bold',size=9.5,leading=12,sb=4,sa=3,align=TA_CENTER)
     shb=s('hb',font='Helvetica-Bold',align=TA_CENTER); shn=s('hn',align=TA_CENTER); str_=s('tr',align=TA_RIGHT)
 
     price = float(data.get('price', 3200))
@@ -492,24 +492,32 @@ def generate_pdf(data):
         story.append(Paragraph(text, sj))
 
     story.append(PageBreak())
-    story.append(Paragraph('<b>6. Présence sur site et logistique</b>', sh))
-    story.append(Paragraph("Toute requête de déplacement doit être transmise au moins 48 heures avant la date prévue.", sj))
+    sn2=s('n2',size=8.5,leading=10.2)
+    sb2=s('b2',font='Helvetica-Bold',size=8.5,leading=10.2)
+    sh2=s('h2',font='Helvetica-Bold',size=8.5,leading=10.2,sb=2,sa=1)
+    sj2=s('j2',size=8.5,leading=10.2,sb=1,sa=1)
+    shb2=s('hb2',font='Helvetica-Bold',size=8,leading=9.3,align=TA_CENTER)
+    shn2=s('hn2',size=8,leading=9.3,align=TA_CENTER)
+    str2=s('tr2',size=8,leading=9.3,align=TA_RIGHT)
+
+    story.append(Paragraph('<b>6. Présence sur site et logistique</b>', sh2))
+    story.append(Paragraph("Toute requête de déplacement doit être transmise au moins 48 heures avant la date prévue.", sj2))
     story.append(Spacer(1, 2))
-    story.append(Paragraph('<b>TAUX HORAIRES</b>', sb_))
+    story.append(Paragraph('<b>TAUX HORAIRES</b>', sb2))
     story.append(Spacer(1, 2))
-    rt = Table([[Paragraph(r, str_), Paragraph(v, sn)] for r,v in [
+    rt = Table([[Paragraph(r, str2), Paragraph(v, sn2)] for r,v in [
         ('Ingénieur senior :','130 $ /h'),('Ingénieur intermédiaire :','110 $ /h'),
         ('Ingénieur junior :','105 $ /h'),('Technicien :','100 $ /h'),('Dessinateur :','85 $ /h'),
     ]], colWidths=[9*cm, 3*cm])
     rt.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(rt)
     story.append(Spacer(1, 3))
-    story.append(Paragraph('<b>HONORAIRES – FORFAIT DU PROJET</b>', sb_))
+    story.append(Paragraph('<b>HONORAIRES – FORFAIT DU PROJET</b>', sb2))
     story.append(Spacer(1, 3))
     hon_data = [
-        [Paragraph('<b>Description des services</b>',shb),Paragraph('<b>Unité</b>',shb),Paragraph('<b>Quantité</b>',shb),Paragraph('<b>Coût unitaire</b>',shb),Paragraph('<b>Coût total</b>',shb)],
-        [Paragraph(_build_service_desc(data),s('sd',size=8,leading=9.3)),Paragraph('Forfait',shn),Paragraph('1',shn),Paragraph(pf,shn),Paragraph(pf,shn)],
-        ['','','',Paragraph('Total des honoraires du projet',str_),Paragraph(f'<b>{pf}</b>',shb)],
+        [Paragraph('<b>Description des services</b>',shb2),Paragraph('<b>Unité</b>',shb2),Paragraph('<b>Quantité</b>',shb2),Paragraph('<b>Coût unitaire</b>',shb2),Paragraph('<b>Coût total</b>',shb2)],
+        [Paragraph(_build_service_desc(data),s('sd',size=8,leading=9.3)),Paragraph('Forfait',shn2),Paragraph('1',shn2),Paragraph(pf,shn2),Paragraph(pf,shn2)],
+        ['','','',Paragraph('Total des honoraires du projet',str2),Paragraph(f'<b>{pf}</b>',shb2)],
     ]
     ht = Table(hon_data, colWidths=[8.5*cm,1.8*cm,1.8*cm,3.8*cm,2.6*cm])
     ht.setStyle(TableStyle([
@@ -522,33 +530,33 @@ def generate_pdf(data):
     story.append(Spacer(1, 4))
     story.append(Paragraph(
         '<b>Taxes : </b>' + (data.get('taxes') or 'En sus'),
-        sn,
+        sn2,
     ))
     if data.get('special_note'):
         story.append(Spacer(1, 2))
         story.append(Paragraph(
             '<b>Note spéciale : </b>' + str(data.get('special_note'))[:250],
-            sn,
+            sn2,
         ))
     story.append(Spacer(1, 4))
-    story.append(Paragraph('<b>AUTRES FRAIS (SI APPLICABLE)</b>', sb_))
+    story.append(Paragraph('<b>AUTRES FRAIS (SI APPLICABLE)</b>', sb2))
     story.append(Spacer(1, 3))
-    story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10') + ' jours ouvrables suivant la visite finale sur site.', sn))
+    story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10') + ' jours ouvrables suivant la visite finale sur site.', sn2))
     story.append(Spacer(1, 3))
-    story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb_))
+    story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb2))
     for h in [
         "1- Plans architecturaux fournis avant le début du mandat (si disponible);",
         "2- Accès aux éléments structuraux accessibles (colonnes, poutres, murs porteurs, fondations);",
         "3- Vérification et approbation par l'architecte non incluses dans la présente offre.",
     ]:
-        story.append(Paragraph(h, sn))
+        story.append(Paragraph(h, sn2))
     story.append(Spacer(1, 4))
-    story.append(Paragraph("Cette offre est valable 30 jours. Pour l'accepter, veuillez compléter les sections suivantes.", sn))
+    story.append(Paragraph("Cette offre est valable 30 jours. Pour l'accepter, veuillez compléter les sections suivantes.", sn2))
     story.append(Spacer(1, 8))
     sig = Table([
-        [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.',sn),Paragraph('<b>Nom du client:</b>',sn)],
-        [Paragraph('Président-Ingénieur en structure',sn),''],
-        [Paragraph('Métra Structure Inc.',sn),Paragraph('<b>Date:</b>',sn)],
+        [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.',sn2),Paragraph('<b>Nom du client:</b>',sn2)],
+        [Paragraph('Président-Ingénieur en structure',sn2),''],
+        [Paragraph('Métra Structure Inc.',sn2),Paragraph('<b>Date:</b>',sn2)],
     ], colWidths=[9*cm,8.5*cm])
     sig.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(sig)
