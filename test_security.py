@@ -74,3 +74,22 @@ def test_client_civility_and_missing_contact_placeholders():
     assert "story.append(Paragraph(client_identity(data), sn))" in SOURCE
     assert "ws['B7'] = client_identity(data)" in SOURCE
     assert "return [] if name" in SOURCE
+
+
+def test_email_send_requires_explicit_confirmation_and_graph_credentials():
+    assert "MS_TENANT_ID" in SOURCE
+    assert "MS_CLIENT_ID" in SOURCE
+    assert "MS_CLIENT_SECRET" in SOURCE
+    assert "EMAIL_SENDER" in SOURCE
+    assert "def graph_access_token():" in SOURCE
+    assert "'scope': 'https://graph.microsoft.com/.default'" in SOURCE
+    assert "def send_ods_email(data):" in SOURCE
+    assert "/sendMail" in SOURCE
+    assert "response.status_code != 202" in SOURCE
+    assert "'saveToSentItems': True" in SOURCE
+    assert "'callback_data': 'email_send'" in SOURCE
+    assert "elif cdata == 'email_send':" in SOURCE
+    assert "email_sent_at" in SOURCE
+    assert "Ce courriel a déjà été envoyé" in SOURCE
+    assert "show_email_confirmation(chat_id, uid)" in SOURCE
+    assert "Pièce jointe : PDF de l'offre de service" in SOURCE
