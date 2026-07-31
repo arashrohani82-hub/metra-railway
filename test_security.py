@@ -27,3 +27,22 @@ def test_runtime_data_uses_persistent_directory():
 def test_telegram_menu_and_commands_are_registered():
     assert "def main_menu():" in SOURCE
     assert "setMyCommands" in SOURCE
+
+
+def test_ods_prompt_generates_one_concise_engineering_scope():
+    assert "Prepare ONE proposal only" in SOURCE
+    assert "maximum 70 words" in SOURCE
+    assert '"service_lines"' in SOURCE
+    assert "Never invent a test, deliverable, quantity" in SOURCE
+
+
+def test_files_wait_for_all_confirmations():
+    for field in (
+        "project_num",
+        "price_confirmed",
+        "delai",
+        "taxes",
+        "special_note_confirmed",
+    ):
+        assert field in SOURCE
+    assert "Générer Excel + PDF" in SOURCE
