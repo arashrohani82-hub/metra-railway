@@ -430,14 +430,14 @@ def draw_header_footer(canvas, doc):
 
 def normalize_client_name(value):
     """Trim repeated whitespace and remove a civility already included in the name."""
-    name = re.sub(r'\\s+', ' ', str(value or '')).strip()
-    name = re.sub(r'^(?:M\\.?|Mme|Mlle|Monsieur|Madame)\\s+', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s+', ' ', str(value or '')).strip()
+    name = re.sub(r'^(?:M\.?|Mme|Mlle|Monsieur|Madame)\s+', '', name, flags=re.IGNORECASE)
     return name
 
 
 def normalize_civility(value):
     """Return only an approved French civility; stay neutral when uncertain."""
-    raw = re.sub(r'\\s+', '', str(value or '')).lower()
+    raw = re.sub(r'\s+', '', str(value or '')).lower()
     if raw in ('m', 'm.', 'monsieur', 'mr'):
         return 'M.'
     if raw in ('mme', 'madame', 'mrs', 'ms'):
@@ -453,7 +453,7 @@ def client_identity(data):
 
 def client_contact_fields(data):
     addr = ', '.join(
-        line.strip() for line in str(data.get('addr') or '').split('\\n') if line.strip()
+        line.strip() for line in str(data.get('addr') or '').split('\n') if line.strip()
     )
     phone = str(data.get('phone') or '').strip()
     email = str(data.get('email') or '').strip()
