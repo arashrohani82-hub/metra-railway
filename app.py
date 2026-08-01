@@ -639,6 +639,15 @@ def do_extract(chat_id, uid, file_id):
 
         prompt = """Extract only information visibly present in this client document. Do not infer or invent missing information. Return ONLY JSON:
 {"client_name":"","client_civility":"M.|Mme|M./Mme","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
+
+IMPORTANT FOR EMAIL SCREENSHOTS:
+1. Read the complete email header before the message body.
+2. The person and email on the From/sender line are the client. Use them for client_name and email.
+3. The account on the To/recipient line is Métra Structure, not the client. Never return an @metrastructure.ca address as the client email.
+4. Do not use a Cc contact when a From contact is visible.
+5. The email Subject is a primary source for the project address. If it visibly contains a street number, street, city, province or postal code, copy the complete visible address into address.
+6. Preserve accents, street number, municipality, province and postal code exactly as visible.
+
 For client_civility: use "M." for a confidently male first name, "Mme" for a confidently female first name, and "M./Mme" when the name is ambiguous or confidence is low. Never guess weakly.
 suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
 suggested_price is only a preliminary internal suggestion in CAD. ONLY JSON."""
@@ -653,6 +662,52 @@ suggested_price is only a preliminary internal suggestion in CAD. ONLY JSON."""
         )
         text = ''.join(b.text for b in response.content if hasattr(b,'text'))
         info = json.loads(text.replace('```json','').replace('```','').strip())
+
+        # Email headers are small and visually dense. If the general pass misses a
+        # critical contact field (or selects Métra's recipient address), run one
+        # focused pass on the same image and merge only visibly extracted values.
+        extracted_email = str(info.get('email') or '').strip()
+        needs_header_retry = (
+            not str(info.get('address') or '').strip()
+            or not extracted_email
+            or extracted_email.lower().endswith('@metrastructure.ca')
+        )
+        if needs_header_retry:
+            header_prompt = """Re-read ONLY the visible email header in this image.
+Return ONLY JSON:
+{"client_name":"","client_civility":"M.|Mme|M./Mme","email":"","address":""}
+Rules:
+- From/sender = client. Extract that sender name and sender email.
+- To/recipient = Métra Structure. Never use an @metrastructure.ca address.
+- Cc is not the client when From is visible.
+- Read the entire Subject. If it contains a project address, copy the full visible
+  street number, street, city, province and postal code exactly.
+- Do not invent missing text. ONLY JSON."""
+            header_response = client.messages.create(
+                model="claude-sonnet-4-6", max_tokens=350,
+                temperature=0,
+                messages=[{"role":"user","content":[
+                    {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":img_b64}},
+                    {"type":"text","text":header_prompt}
+                ]}]
+            )
+            header_text = ''.join(
+                b.text for b in header_response.content if hasattr(b, 'text')
+            )
+            header_info = json.loads(
+                header_text.replace('```json', '').replace('```', '').strip()
+            )
+            if not str(info.get('client_name') or '').strip():
+                info['client_name'] = header_info.get('client_name', '')
+            if normalize_civility(info.get('client_civility')) == 'M./Mme':
+                info['client_civility'] = header_info.get(
+                    'client_civility', info.get('client_civility', 'M./Mme')
+                )
+            header_email = str(header_info.get('email') or '').strip()
+            if header_email and not header_email.lower().endswith('@metrastructure.ca'):
+                info['email'] = header_email
+            if not str(info.get('address') or '').strip():
+                info['address'] = header_info.get('address', '')
 
         yr = datetime.now().strftime('%y')
         ods_num = f"ODS{yr}-{random.randint(100,999)}"
