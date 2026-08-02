@@ -836,14 +836,35 @@ def build_email_preview(data):
     return recipient, subject, body
 
 
+def microsoft_email_config():
+    """Read Railway variables at send time and report missing names without secrets."""
+    config = {
+        'MS_TENANT_ID': str(os.environ.get('MS_TENANT_ID') or '').strip(),
+        'MS_CLIENT_ID': str(os.environ.get('MS_CLIENT_ID') or '').strip(),
+        'MS_CLIENT_SECRET': str(os.environ.get('MS_CLIENT_SECRET') or '').strip(),
+        'EMAIL_SENDER': str(
+            os.environ.get('EMAIL_SENDER') or EMAIL_SENDER or ''
+        ).strip(),
+    }
+    missing = [name for name, value in config.items() if not value]
+    if missing:
+        logger.error(
+            "Microsoft 365 missing environment variables: %s",
+            ", ".join(missing),
+        )
+        raise RuntimeError(
+            "Configuration Microsoft 365 incomplète : " + ", ".join(missing)
+        )
+    return config
+
+
 def graph_access_token():
-    if not all((MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, EMAIL_SENDER)):
-        raise RuntimeError("Connexion Microsoft 365 non configurée.")
+    config = microsoft_email_config()
     response = req.post(
-        f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token",
+        f"https://login.microsoftonline.com/{config['MS_TENANT_ID']}/oauth2/v2.0/token",
         data={
-            'client_id': MS_CLIENT_ID,
-            'client_secret': MS_CLIENT_SECRET,
+            'client_id': config['MS_CLIENT_ID'],
+            'client_secret': config['MS_CLIENT_SECRET'],
             'scope': 'https://graph.microsoft.com/.default',
             'grant_type': 'client_credentials',
         },
@@ -882,8 +903,9 @@ def send_ods_email(data):
         },
         'saveToSentItems': True,
     }
+    config = microsoft_email_config()
     token = graph_access_token()
-    sender = urllib.parse.quote(EMAIL_SENDER, safe='')
+    sender = urllib.parse.quote(config['EMAIL_SENDER'], safe='')
     response = req.post(
         f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
         headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
