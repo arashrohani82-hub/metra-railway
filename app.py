@@ -221,6 +221,8 @@ def show_format_buttons(chat_id, d):
         "⏱️ " + (d.get('delai') or '—'),
         "🧾 Taxes : " + (d.get('taxes') or '—'),
         "📝 Note : " + (d.get('special_note') or 'Aucune'),
+        "🏗️ Accès structural : " + ('Inclus' if d.get('assumption_access') else 'Non inclus'),
+        "🏛️ Exclusion architecte/technologue : " + ('Incluse' if d.get('assumption_architect') else 'Non incluse'),
         "",
         "🔧 " + (d.get('project_title') or d.get('service') or '—'),
         "💰 $" + "{:,}".format(price) + " CAD",
@@ -387,6 +389,28 @@ def ask_next_missing(chat_id, uid):
             [[
                 {"text": "Aucune", "callback_data": "note_none"},
                 {"text": "Ajouter une note", "callback_data": "note_add"},
+            ]],
+        )
+    elif not d.get('assumption_access_confirmed'):
+        tg(
+            chat_id,
+            "🏗️ Ajouter cette hypothèse à l'offre?\n\n"
+            "Accès aux éléments structuraux accessibles "
+            "(colonnes, poutres, murs porteurs et fondations).",
+            [[
+                {"text": "✅ Oui, ajouter", "callback_data": "assumption_access_yes"},
+                {"text": "❌ Non", "callback_data": "assumption_access_no"},
+            ]],
+        )
+    elif not d.get('assumption_architect_confirmed'):
+        tg(
+            chat_id,
+            "🏛️ Ajouter cette exclusion à l'offre?\n\n"
+            "La vérification, la coordination et l'approbation par l'architecte "
+            "ou le technologue ne sont pas incluses.",
+            [[
+                {"text": "✅ Oui, ajouter", "callback_data": "assumption_architect_yes"},
+                {"text": "❌ Non", "callback_data": "assumption_architect_no"},
             ]],
         )
     else:
@@ -613,6 +637,24 @@ def _build_service_desc(data):
         result.append('• ' + compact_line + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
+
+def selected_assumptions(data):
+    """Return only the project assumptions selected for this offer."""
+    assumptions = [
+        "Plans architecturaux fournis avant le début du mandat (si disponible);",
+    ]
+    if data.get('assumption_access'):
+        assumptions.append(
+            "Accès aux éléments structuraux accessibles "
+            "(colonnes, poutres, murs porteurs, fondations);"
+        )
+    if data.get('assumption_architect'):
+        assumptions.append(
+            "Vérification, coordination et approbation par l'architecte ou le "
+            "technologue non incluses dans la présente offre."
+        )
+    return [f"{index}- {text}" for index, text in enumerate(assumptions, 1)]
+
 def generate_pdf(data):
     buf = io.BytesIO()
     doc = BaseDocTemplate(buf, pagesize=letter,
@@ -712,11 +754,7 @@ def generate_pdf(data):
     story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10') + ' jours ouvrables suivant la visite finale sur site.', sn2))
     story.append(Spacer(1, 3))
     story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb2))
-    for h in [
-        "1- Plans architecturaux fournis avant le début du mandat (si disponible);",
-        "2- Accès aux éléments structuraux accessibles (colonnes, poutres, murs porteurs, fondations);",
-        "3- Vérification et approbation par l'architecte non incluses dans la présente offre.",
-    ]:
+    for h in selected_assumptions(data):
         story.append(Paragraph(h, sn2))
     story.append(Spacer(1, 4))
     story.append(Paragraph("Cette offre est valable 30 jours. Pour l'accepter, veuillez compléter les sections suivantes.", sn2))
@@ -751,6 +789,9 @@ def generate_excel(data):
     ws['E47'] = float(data['price'])
     ws['F47'] = '=E47*D47'
     ws['F48'] = '=SUM(F47:F47)'
+    assumptions = selected_assumptions(data)
+    for row, value in zip((54, 55, 56), assumptions + ['', '', '']):
+        ws.cell(row=row, column=2).value = value
     wb.save(out_path)
     with open(out_path, 'rb') as f:
         buf = io.BytesIO(f.read())
@@ -1670,6 +1711,20 @@ def handle_update(data):
                 user_data[uid] = d
                 save_user_data()
                 tg(chat_id, MISSING_QUESTIONS['special_note'])
+            elif cdata in ('assumption_access_yes', 'assumption_access_no'):
+                d = user_data.get(uid, {})
+                d['assumption_access'] = cdata.endswith('_yes')
+                d['assumption_access_confirmed'] = True
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
+            elif cdata in ('assumption_architect_yes', 'assumption_architect_no'):
+                d = user_data.get(uid, {})
+                d['assumption_architect'] = cdata.endswith('_yes')
+                d['assumption_architect_confirmed'] = True
+                user_data[uid] = d
+                save_user_data()
+                ask_next_missing(chat_id, uid)
 
         elif msg:
             uid = str(msg['from']['id'])
