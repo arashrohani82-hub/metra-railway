@@ -915,6 +915,60 @@ def graph_access_token():
     return response.json()['access_token']
 
 
+def safe_archive_filename(value):
+    """Return a OneDrive-safe filename while preserving French characters."""
+    cleaned = re.sub(r'[<>:"/\\|?*#%]+', '-', str(value or 'ODS'))
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' .-')
+    return cleaned[:180] or 'ODS'
+
+
+def upload_onedrive_file(token, sender, filename, content, content_type):
+    """Upload or replace one file in the approved ODS archive folder."""
+    archive_path = f"Metra Structure Inc/Offre de service/{filename}"
+    encoded_path = urllib.parse.quote(archive_path, safe='/')
+    encoded_sender = urllib.parse.quote(sender, safe='')
+    response = req.put(
+        f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/"
+        f"root:/{encoded_path}:/content",
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': content_type,
+        },
+        data=content,
+        timeout=60,
+    )
+    if response.status_code not in (200, 201):
+        logger.error(
+            "OneDrive upload error for %s: %s %s",
+            filename,
+            response.status_code,
+            response.text[:500],
+        )
+        raise RuntimeError(f"échec de l'archivage de {filename}")
+
+
+def archive_ods_files(data, token, sender, pdf_bytes):
+    """Archive the final PDF and Excel in Métra's OneDrive ODS folder."""
+    base_name = safe_archive_filename(data.get('odsNum') or 'ODS')
+    excel = generate_excel(data)
+    excel.seek(0)
+    upload_onedrive_file(
+        token,
+        sender,
+        f"{base_name}.pdf",
+        pdf_bytes,
+        'application/pdf',
+    )
+    upload_onedrive_file(
+        token,
+        sender,
+        f"{base_name}.xlsx",
+        excel.read(),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    return [f"{base_name}.pdf", f"{base_name}.xlsx"]
+
+
 def send_ods_email(data):
     recipient, subject, body = build_email_preview(data)
     if not recipient:
@@ -954,7 +1008,14 @@ def send_ods_email(data):
     if response.status_code != 202:
         logger.error("Microsoft sendMail error: %s %s", response.status_code, response.text[:500])
         raise RuntimeError("Microsoft 365 a refusé l'envoi du courriel.")
-    return recipient, subject
+    archive_files = []
+    archive_error = None
+    try:
+        archive_files = archive_ods_files(data, token, config['EMAIL_SENDER'], pdf_bytes)
+    except Exception as exc:
+        archive_error = str(exc)
+        logger.error("OneDrive ODS archive error: %s", exc)
+    return recipient, subject, archive_files, archive_error
 
 
 def show_email_confirmation(chat_id, uid):
@@ -1005,7 +1066,7 @@ def do_send_email(chat_id, uid):
     save_user_data()
     try:
         tg(chat_id, "⏳ Envoi du courriel via Microsoft 365...")
-        recipient, subject = send_ods_email(data)
+        recipient, subject, archive_files, archive_error = send_ods_email(data)
         data['email_sent_at'] = datetime.now().isoformat(timespec='seconds')
         data['email_sending'] = False
         user_data[uid] = data
@@ -1016,6 +1077,18 @@ def do_send_email(chat_id, uid):
             f"Objet : {subject}\n"
             "Une copie est enregistrée dans les éléments envoyés.",
         )
+        if archive_error:
+            tg(
+                chat_id,
+                "⚠️ Courriel envoyé, mais archivage OneDrive non complété : "
+                + archive_error,
+            )
+        else:
+            tg(
+                chat_id,
+                "☁️ Archives OneDrive enregistrées :\n"
+                + "\n".join(f"• {name}" for name in archive_files),
+            )
     except Exception as exc:
         data['email_sending'] = False
         user_data[uid] = data
