@@ -2,7 +2,7 @@ import urllib.parse
 import re
 import hmac
 import html
-import os, json, io, shutil, base64, logging
+import os, json, io, shutil, base64, logging, threading
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
 import anthropic
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=10)
+project_creation_lock = threading.Lock()
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -71,9 +72,11 @@ PRICES = {
 }
 
 user_data = {}
+offers_history = {}
 
 # ── Persistent storage (survives Railway restarts) ──
 DATA_FILE = os.path.join(DATA_DIR, 'offre_user_data.json')
+OFFERS_FILE = os.path.join(DATA_DIR, 'offre_history.json')
 
 def load_user_data():
     global user_data
@@ -93,7 +96,26 @@ def save_user_data():
     except Exception as e:
         logger.warning(f"save_user_data error: {e}")
 
+def load_offers_history():
+    global offers_history
+    try:
+        if os.path.exists(OFFERS_FILE):
+            with open(OFFERS_FILE, 'r') as f:
+                offers_history = json.load(f)
+            logger.info(f"Loaded offer history for {len(offers_history)} users")
+    except Exception as e:
+        logger.warning(f"load_offers_history error: {e}")
+        offers_history = {}
+
+def save_offers_history():
+    try:
+        with open(OFFERS_FILE, 'w') as f:
+            json.dump(offers_history, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"save_offers_history error: {e}")
+
 load_user_data()
+load_offers_history()
 
 def get_next_project_num():
     try:
@@ -375,6 +397,7 @@ def main_menu():
     return {
         'keyboard': [
             [{'text': '📝 Nouvelle offre'}],
+            [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
             [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
         ],
@@ -416,6 +439,105 @@ def tg_doc(chat_id, buf, filename, caption):
         logger.error(f"tg_doc error: {e}")
         logger.error(traceback.format_exc())
         tg(chat_id, f"❌ Erreur envoi fichier: {str(e)}")
+
+
+def offer_reference(data):
+    ods = str(data.get('odsNum') or '')
+    match = re.search(r'ODS\d{2}-\d{3}-[A-Z]{3}', ods, re.I)
+    if match:
+        return match.group(0).upper()
+    return safe_archive_filename(ods or 'ODS')
+
+
+def history_data_copy(data):
+    clean = json.loads(json.dumps(data, ensure_ascii=False))
+    for key in (
+        'email_sending', 'project_creating', 'extracting', 'waiting_field',
+        'waiting_price', 'waiting_offer_search',
+    ):
+        clean.pop(key, None)
+    return clean
+
+
+def record_sent_offer(uid, data):
+    uid = str(uid)
+    ref = offer_reference(data)
+    records = offers_history.setdefault(uid, {})
+    existing = records.get(ref, {})
+    records[ref] = {
+        'data': history_data_copy(data),
+        'sent_at': data.get('email_sent_at') or existing.get('sent_at') or datetime.now().isoformat(timespec='seconds'),
+        'converted': bool(existing.get('converted') or data.get('project_created')),
+        'project_folder': existing.get('project_folder') or data.get('project_folder') or '',
+        'project_web_url': existing.get('project_web_url') or data.get('project_web_url') or '',
+    }
+    save_offers_history()
+    return ref
+
+
+def pending_offer_records(uid, query=''):
+    query = query.strip().casefold()
+    records = offers_history.get(str(uid), {})
+    pending = []
+    for ref, record in records.items():
+        if record.get('converted'):
+            continue
+        data = record.get('data') or {}
+        searchable = ' '.join([
+            ref,
+            str(data.get('project_title') or ''),
+            str(data.get('name') or ''),
+            str(data.get('addr') or ''),
+        ]).casefold()
+        if query and query not in searchable:
+            continue
+        pending.append((ref, record))
+    return sorted(pending, key=lambda item: item[1].get('sent_at') or '', reverse=True)
+
+
+def show_pending_offers(chat_id, uid, query=''):
+    current = user_data.get(str(uid), {})
+    if current.get('email_sent_at'):
+        record_sent_offer(uid, current)
+    pending = pending_offer_records(uid, query)
+    rows = []
+    for ref, record in pending[:10]:
+        title = str((record.get('data') or {}).get('project_title') or 'Projet').strip()
+        label = f"{ref} — {title}"[:60]
+        rows.append([{'text': label, 'callback_data': f'offer_pick:{ref}'}])
+    rows.append([{'text': '🔎 Rechercher par numéro ODS', 'callback_data': 'offer_search'}])
+    if pending:
+        text = "📁 Offres en attente de conversion\n\nChoisissez une offre :"
+        if len(pending) > 10:
+            text += "\n(10 plus récentes affichées; utilisez la recherche pour les autres.)"
+    else:
+        text = "Aucune offre non convertie trouvée."
+        if query:
+            text += f"\nRecherche : {query}"
+    tg(chat_id, text, rows)
+
+
+def show_offer_conversion_confirmation(chat_id, uid, ref):
+    record = offers_history.get(str(uid), {}).get(ref)
+    if not record:
+        tg(chat_id, "❌ Offre introuvable. Ouvrez de nouveau la liste.")
+        return
+    if record.get('converted'):
+        message = f"✅ Cette offre est déjà convertie : {record.get('project_folder', '')}"
+        if record.get('project_web_url'):
+            message += f"\n{record['project_web_url']}"
+        tg(chat_id, message)
+        return
+    data = record.get('data') or {}
+    tg(
+        chat_id,
+        "Confirmer la conversion en projet :\n\n"
+        f"ODS : {ref}\n"
+        f"Client : {data.get('name') or 'Non indiqué'}\n"
+        f"Projet : {data.get('project_title') or data.get('service') or 'Non indiqué'}\n"
+        f"Envoyée : {record.get('sent_at') or 'Non indiqué'}",
+        [[{'text': '✅ Créer le projet', 'callback_data': f'offer_convert:{ref}'}]],
+    )
 
 def draw_header_footer(canvas, doc):
     canvas.saveState()
@@ -1232,6 +1354,7 @@ def do_send_email(chat_id, uid):
         data['email_sending'] = False
         user_data[uid] = data
         save_user_data()
+        record_sent_offer(uid, data)
         tg(
             chat_id,
             f"✅ Courriel envoyé à {recipient}\n"
@@ -1263,37 +1386,76 @@ def do_send_email(chat_id, uid):
         tg(chat_id, f"❌ Envoi impossible : {exc}")
 
 
-def do_create_project(chat_id, uid):
+def do_create_project(chat_id, uid, offer_ref=None):
+    if not project_creation_lock.acquire(blocking=False):
+        tg(chat_id, "⏳ Une création de projet est déjà en cours. Réessayez dans un instant.")
+        return
+    try:
+        return _do_create_project(chat_id, uid, offer_ref)
+    finally:
+        project_creation_lock.release()
+
+
+def _do_create_project(chat_id, uid, offer_ref=None):
     uid = str(uid)
-    data = user_data.get(uid)
+    history_record = None
+    if offer_ref:
+        history_record = offers_history.get(uid, {}).get(offer_ref)
+        data = (history_record or {}).get('data')
+    else:
+        data = user_data.get(uid)
     if not data:
-        tg(chat_id, "❌ Session expirée. Générez une nouvelle offre.")
+        tg(chat_id, "❌ Offre introuvable. Ouvrez de nouveau la liste.")
         return
     if not data.get('email_sent_at'):
         tg(chat_id, "⚠️ Envoyez d'abord l'offre au client.")
         return
-    if data.get('project_created'):
-        link = data.get('project_web_url') or ''
-        message = f"✅ Projet déjà créé : {data.get('project_folder')}"
+    if data.get('project_created') or (history_record and history_record.get('converted')):
+        link = (history_record or {}).get('project_web_url') or data.get('project_web_url') or ''
+        folder = (history_record or {}).get('project_folder') or data.get('project_folder')
+        message = f"✅ Projet déjà créé : {folder}"
         if link:
             message += f"\n{link}"
         tg(chat_id, message)
         return
-    if data.get('project_creating'):
+    if not offer_ref and data.get('project_creating'):
         tg(chat_id, "⏳ Création du projet déjà en cours.")
         return
 
     data['project_creating'] = True
-    user_data[uid] = data
-    save_user_data()
+    if history_record is not None:
+        history_record['data'] = history_data_copy(data)
+        save_offers_history()
+    else:
+        user_data[uid] = data
+        save_user_data()
     try:
         tg(chat_id, "⏳ Création du dossier de projet dans OneDrive...")
         folder_name, web_url = create_project_from_ods(data)
         data['project_created'] = True
         data['project_creating'] = False
         data['project_web_url'] = web_url
-        user_data[uid] = data
-        save_user_data()
+        if history_record is not None:
+            history_record.update({
+                'data': history_data_copy(data),
+                'converted': True,
+                'project_folder': folder_name,
+                'project_web_url': web_url,
+            })
+            save_offers_history()
+            current = user_data.get(uid)
+            if current and offer_reference(current) == offer_ref:
+                current.update({
+                    'project_created': True,
+                    'project_creating': False,
+                    'project_folder': folder_name,
+                    'project_web_url': web_url,
+                })
+                save_user_data()
+        else:
+            user_data[uid] = data
+            save_user_data()
+            record_sent_offer(uid, data)
         message = (
             f"✅ Projet créé : {folder_name}\n"
             "6 sous-dossiers créés.\n"
@@ -1304,8 +1466,12 @@ def do_create_project(chat_id, uid):
         tg(chat_id, message)
     except Exception as exc:
         data['project_creating'] = False
-        user_data[uid] = data
-        save_user_data()
+        if history_record is not None:
+            history_record['data'] = history_data_copy(data)
+            save_offers_history()
+        else:
+            user_data[uid] = data
+            save_user_data()
         logger.error("Project creation error: %s", exc)
         tg(chat_id, f"❌ Création du projet impossible : {exc}")
 
@@ -1409,6 +1575,16 @@ def handle_update(data):
                 executor.submit(do_send_email, chat_id, uid)
             elif cdata == 'project_create':
                 executor.submit(do_create_project, chat_id, uid)
+            elif cdata.startswith('offer_pick:'):
+                show_offer_conversion_confirmation(chat_id, uid, cdata.split(':', 1)[1])
+            elif cdata.startswith('offer_convert:'):
+                executor.submit(do_create_project, chat_id, uid, cdata.split(':', 1)[1])
+            elif cdata == 'offer_search':
+                d = user_data.get(uid, {})
+                d['waiting_offer_search'] = True
+                user_data[uid] = d
+                save_user_data()
+                tg(chat_id, "🔎 Entrez le numéro ODS (ex. ODS26-096 ou 096) :")
             elif cdata == 'email_cancel':
                 tg(chat_id, "✅ Courriel non envoyé. Le PDF reste disponible dans Telegram.")
             elif cdata == 'num_ok':
@@ -1531,8 +1707,16 @@ def handle_update(data):
                 if text == '📋 Coller un texte':
                     tg(chat_id, "📋 Collez ici le courriel ou le texte complet du client.", reply_markup=main_menu())
                     return
+                if text == '📁 Convertir une offre en projet':
+                    show_pending_offers(chat_id, uid)
+                    return
                 d = user_data.get(uid, {})
-                if d.get('waiting_price'):
+                if d.get('waiting_offer_search'):
+                    d['waiting_offer_search'] = False
+                    user_data[uid] = d
+                    save_user_data()
+                    show_pending_offers(chat_id, uid, text)
+                elif d.get('waiting_price'):
                     try:
                         price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
                         d['price'] = price
