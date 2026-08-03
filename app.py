@@ -26,8 +26,14 @@ ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 SETUP_SECRET = os.environ.get('SETUP_SECRET', '')
-MS_TENANT_ID = os.environ.get('MS_TENANT_ID', '')
-MS_CLIENT_ID = os.environ.get('MS_CLIENT_ID', '')
+# Microsoft application and tenant identifiers are not credentials. Keep known
+# values as safe fallbacks in case Railway has a pending/empty variable value.
+MS_TENANT_ID = os.environ.get(
+    'MS_TENANT_ID', 'ac6988d0-6195-40e0-bdaf-ecc951dbd4fa'
+)
+MS_CLIENT_ID = os.environ.get(
+    'MS_CLIENT_ID', 'cc816a89-9af1-4afc-a08d-1ea9dd604ec5'
+)
 MS_CLIENT_SECRET = os.environ.get('MS_CLIENT_SECRET', '')
 EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'arash.rohani@metrastructure.ca')
 ALLOWED_USERS = {
@@ -839,8 +845,12 @@ def build_email_preview(data):
 def microsoft_email_config():
     """Read Railway variables at send time and report missing names without secrets."""
     config = {
-        'MS_TENANT_ID': str(os.environ.get('MS_TENANT_ID') or '').strip(),
-        'MS_CLIENT_ID': str(os.environ.get('MS_CLIENT_ID') or '').strip(),
+        'MS_TENANT_ID': str(
+            os.environ.get('MS_TENANT_ID') or MS_TENANT_ID or ''
+        ).strip(),
+        'MS_CLIENT_ID': str(
+            os.environ.get('MS_CLIENT_ID') or MS_CLIENT_ID or ''
+        ).strip(),
         'MS_CLIENT_SECRET': str(os.environ.get('MS_CLIENT_SECRET') or '').strip(),
         'EMAIL_SENDER': str(
             os.environ.get('EMAIL_SENDER') or EMAIL_SENDER or ''
