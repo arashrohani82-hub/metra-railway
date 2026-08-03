@@ -1,6 +1,7 @@
 import urllib.parse
 import re
 import hmac
+import html
 import os, json, io, shutil, base64, logging
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
@@ -825,9 +826,13 @@ def build_email_preview(data):
         else f"Bonjour {name}," if name else "Bonjour,"
     )
     ods_num = str(data.get('odsNum') or 'ODS').strip()
+    # odsNum may also contain the long generated filename. Keep the email
+    # subject limited to the official ODS reference.
+    ods_match = re.search(r'ODS\d{2}-\d{3}-[A-Z]{3}', ods_num, re.IGNORECASE)
+    ods_reference = ods_match.group(0).upper() if ods_match else ods_num.split('-')[0]
     project = str(data.get('project_title') or data.get('service') or 'votre projet').strip()
     address = client_contact_fields(data)['address']
-    subject = f"{ods_num} – Offre de service – {project}"
+    subject = f"{ods_reference} – Offre de service"
     body = (
         f"{greeting}\n\n"
         f"Veuillez trouver ci-joint notre offre de service {ods_num} concernant "
@@ -840,6 +845,30 @@ def build_email_preview(data):
         "arash.rohani@metrastructure.ca | (438) 867-4131"
     )
     return recipient, subject, body
+
+
+def email_body_html(body):
+    """Render the approved email text with a consistent Métra signature."""
+    paragraphs = [
+        html.escape(part).replace('\n', '<br>')
+        for part in body.rsplit('Cordialement,', 1)[0].strip().split('\n\n')
+    ]
+    content = ''.join(f'<p>{paragraph}</p>' for paragraph in paragraphs)
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;'
+        'line-height:1.45;color:#1f1f1f">'
+        f'{content}'
+        '<p>Cordialement,</p>'
+        '<div style="border-left:4px solid #f5a623;padding-left:12px;margin-top:16px">'
+        '<strong style="font-size:12pt;color:#102a43">Arash Rohani, ing., P.Eng.</strong><br>'
+        'Président – Ingénieur en structure<br>'
+        '<strong>Métra Structure Inc.</strong><br>'
+        '<a href="mailto:arash.rohani@metrastructure.ca" style="color:#1155cc">'
+        'arash.rohani@metrastructure.ca</a> | '
+        '<a href="tel:+14388674131" style="color:#1155cc">(438) 867-4131</a><br>'
+        '<a href="https://metrastructure.ca" style="color:#1155cc">metrastructure.ca</a>'
+        '</div></div>'
+    )
 
 
 def microsoft_email_config():
@@ -900,7 +929,7 @@ def send_ods_email(data):
     payload = {
         'message': {
             'subject': subject,
-            'body': {'contentType': 'Text', 'content': body},
+            'body': {'contentType': 'HTML', 'content': email_body_html(body)},
             'toRecipients': [
                 {'emailAddress': {'address': recipient}}
             ],
