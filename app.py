@@ -922,10 +922,9 @@ def safe_archive_filename(value):
     return cleaned[:180] or 'ODS'
 
 
-def upload_onedrive_file(token, sender, filename, content, content_type):
-    """Upload or replace one file in the approved ODS archive folder."""
-    archive_path = f"Metra Structure Inc/Offre de service/{filename}"
-    encoded_path = urllib.parse.quote(archive_path, safe='/')
+def upload_onedrive_path(token, sender, relative_path, content, content_type):
+    """Upload or replace one file at a path in the sender's OneDrive."""
+    encoded_path = urllib.parse.quote(relative_path, safe='/')
     encoded_sender = urllib.parse.quote(sender, safe='')
     response = req.put(
         f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/"
@@ -940,11 +939,22 @@ def upload_onedrive_file(token, sender, filename, content, content_type):
     if response.status_code not in (200, 201):
         logger.error(
             "OneDrive upload error for %s: %s %s",
-            filename,
+            relative_path,
             response.status_code,
             response.text[:500],
         )
-        raise RuntimeError(f"échec de l'archivage de {filename}")
+        raise RuntimeError(f"échec de l'archivage de {relative_path}")
+
+
+def upload_onedrive_file(token, sender, filename, content, content_type):
+    """Upload or replace one file in the approved ODS archive folder."""
+    upload_onedrive_path(
+        token,
+        sender,
+        f"Metra Structure Inc/Offre de service/{filename}",
+        content,
+        content_type,
+    )
 
 
 def archive_ods_files(data, token, sender, pdf_bytes):
@@ -967,6 +977,157 @@ def archive_ods_files(data, token, sender, pdf_bytes):
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
     return [f"{base_name}.pdf", f"{base_name}.xlsx"]
+
+
+PROJECT_SUBFOLDERS = [
+    'Approvals & Permits',
+    'Calculations',
+    'Correspondence',
+    'Drawings Plans',
+    'Reports',
+    'Specifications',
+]
+
+
+def onedrive_user_url(sender, suffix):
+    encoded_sender = urllib.parse.quote(sender, safe='')
+    return f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/{suffix}"
+
+
+def list_onedrive_children(token, sender, parent_path):
+    """List every direct child of a OneDrive folder."""
+    encoded_path = urllib.parse.quote(parent_path, safe='/')
+    url = onedrive_user_url(sender, f"root:/{encoded_path}:/children")
+    headers = {'Authorization': f'Bearer {token}'}
+    items = []
+    params = {'$select': 'name,folder,webUrl', '$top': '999'}
+    while url:
+        response = req.get(url, headers=headers, params=params, timeout=30)
+        if response.status_code != 200:
+            logger.error(
+                "OneDrive list error for %s: %s %s",
+                parent_path,
+                response.status_code,
+                response.text[:500],
+            )
+            raise RuntimeError("impossible de lire les numéros de projet OneDrive")
+        payload = response.json()
+        items.extend(payload.get('value', []))
+        url = payload.get('@odata.nextLink')
+        params = None
+    return items
+
+
+def get_onedrive_item(token, sender, relative_path):
+    encoded_path = urllib.parse.quote(relative_path, safe='/')
+    response = req.get(
+        onedrive_user_url(sender, f"root:/{encoded_path}"),
+        headers={'Authorization': f'Bearer {token}'},
+        params={'$select': 'name,folder,webUrl'},
+        timeout=30,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"dossier OneDrive introuvable : {relative_path}")
+    return response.json()
+
+
+def create_onedrive_folder(token, sender, parent_path, folder_name):
+    """Create a folder idempotently and return its metadata."""
+    encoded_parent = urllib.parse.quote(parent_path, safe='/')
+    response = req.post(
+        onedrive_user_url(sender, f"root:/{encoded_parent}:/children"),
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'name': folder_name,
+            'folder': {},
+            '@microsoft.graph.conflictBehavior': 'fail',
+        },
+        timeout=30,
+    )
+    if response.status_code in (200, 201):
+        return response.json()
+    if response.status_code == 409:
+        return get_onedrive_item(token, sender, f"{parent_path}/{folder_name}")
+    logger.error(
+        "OneDrive folder error for %s/%s: %s %s",
+        parent_path,
+        folder_name,
+        response.status_code,
+        response.text[:500],
+    )
+    raise RuntimeError(f"impossible de créer le dossier {folder_name}")
+
+
+def project_year_and_code(data):
+    ods = str(data.get('odsNum') or '')
+    match = re.search(r'ODS(\d{2})-\d{3}-([A-Z]{3})', ods, re.IGNORECASE)
+    if match:
+        return f"20{match.group(1)}", match.group(2).upper()
+    return datetime.now().strftime('%Y'), str(data.get('file_code') or 'PRJ').upper()[:3]
+
+
+def next_project_number(items, year):
+    prefix = year[-2:]
+    numbers = []
+    for item in items:
+        if 'folder' not in item:
+            continue
+        match = re.match(rf'^P{prefix}-(\d{{3}})(?:-|$)', str(item.get('name') or ''), re.I)
+        if match:
+            numbers.append(int(match.group(1)))
+    return max(numbers, default=0) + 1
+
+
+def project_folder_name(data, number, year, code):
+    title = str(data.get('project_title') or data.get('service') or 'Projet').strip()
+    title = re.sub(r'[\s–—]+', '-', safe_archive_filename(title))
+    title = re.sub(r'-+', '-', title).strip('-')[:110] or 'Projet'
+    return f"P{year[-2:]}-{number:03d}-{code}-{title}"
+
+
+def create_project_from_ods(data):
+    """Create the numbered project structure and place ODS files in Correspondence."""
+    config = microsoft_email_config()
+    token = graph_access_token()
+    sender = config['EMAIL_SENDER']
+    year, code = project_year_and_code(data)
+    projects_root = 'Metra Structure Inc/Projects'
+    create_onedrive_folder(token, sender, projects_root, year)
+    year_root = f"{projects_root}/{year}"
+
+    folder_name = str(data.get('project_folder') or '').strip()
+    if folder_name:
+        project_item = create_onedrive_folder(token, sender, year_root, folder_name)
+    else:
+        items = list_onedrive_children(token, sender, year_root)
+        number = next_project_number(items, year)
+        folder_name = project_folder_name(data, number, year, code)
+        project_item = create_onedrive_folder(token, sender, year_root, folder_name)
+        data['project_folder'] = folder_name
+
+    project_path = f"{year_root}/{folder_name}"
+    for subfolder in PROJECT_SUBFOLDERS:
+        create_onedrive_folder(token, sender, project_path, subfolder)
+
+    base_name = safe_archive_filename(data.get('odsNum') or 'ODS')
+    pdf = generate_pdf(data)
+    pdf.seek(0)
+    excel = generate_excel(data)
+    excel.seek(0)
+    correspondence = f"{project_path}/Correspondence"
+    upload_onedrive_path(
+        token, sender, f"{correspondence}/{base_name}.pdf",
+        pdf.read(), 'application/pdf',
+    )
+    upload_onedrive_path(
+        token, sender, f"{correspondence}/{base_name}.xlsx",
+        excel.read(),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    return folder_name, project_item.get('webUrl', '')
 
 
 def send_ods_email(data):
@@ -1089,12 +1250,64 @@ def do_send_email(chat_id, uid):
                 "☁️ Archives OneDrive enregistrées :\n"
                 + "\n".join(f"• {name}" for name in archive_files),
             )
+        tg(
+            chat_id,
+            "Cette offre est-elle devenue un projet?",
+            [[{'text': '✅ Convertir en projet', 'callback_data': 'project_create'}]],
+        )
     except Exception as exc:
         data['email_sending'] = False
         user_data[uid] = data
         save_user_data()
         logger.error("ODS email error: %s", exc)
         tg(chat_id, f"❌ Envoi impossible : {exc}")
+
+
+def do_create_project(chat_id, uid):
+    uid = str(uid)
+    data = user_data.get(uid)
+    if not data:
+        tg(chat_id, "❌ Session expirée. Générez une nouvelle offre.")
+        return
+    if not data.get('email_sent_at'):
+        tg(chat_id, "⚠️ Envoyez d'abord l'offre au client.")
+        return
+    if data.get('project_created'):
+        link = data.get('project_web_url') or ''
+        message = f"✅ Projet déjà créé : {data.get('project_folder')}"
+        if link:
+            message += f"\n{link}"
+        tg(chat_id, message)
+        return
+    if data.get('project_creating'):
+        tg(chat_id, "⏳ Création du projet déjà en cours.")
+        return
+
+    data['project_creating'] = True
+    user_data[uid] = data
+    save_user_data()
+    try:
+        tg(chat_id, "⏳ Création du dossier de projet dans OneDrive...")
+        folder_name, web_url = create_project_from_ods(data)
+        data['project_created'] = True
+        data['project_creating'] = False
+        data['project_web_url'] = web_url
+        user_data[uid] = data
+        save_user_data()
+        message = (
+            f"✅ Projet créé : {folder_name}\n"
+            "6 sous-dossiers créés.\n"
+            "PDF et Excel classés dans Correspondence."
+        )
+        if web_url:
+            message += f"\n\n🔗 {web_url}"
+        tg(chat_id, message)
+    except Exception as exc:
+        data['project_creating'] = False
+        user_data[uid] = data
+        save_user_data()
+        logger.error("Project creation error: %s", exc)
+        tg(chat_id, f"❌ Création du projet impossible : {exc}")
 
 
 def do_pdf(chat_id, uid):
@@ -1194,6 +1407,8 @@ def handle_update(data):
                     do_pdf(chat_id, uid)
             elif cdata == 'email_send':
                 executor.submit(do_send_email, chat_id, uid)
+            elif cdata == 'project_create':
+                executor.submit(do_create_project, chat_id, uid)
             elif cdata == 'email_cancel':
                 tg(chat_id, "✅ Courriel non envoyé. Le PDF reste disponible dans Telegram.")
             elif cdata == 'num_ok':
