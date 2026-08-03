@@ -15,6 +15,7 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 import openpyxl
 import random
 import requests as req
+from technical_content import parse_custom_technical_content
 from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
@@ -252,17 +253,21 @@ def ask_desc_options(chat_id, uid):
         addr = d.get('addr', '')
         prompt = (
             "You prepare structural-engineering offers of service for Métra Structure Inc. "
-            "Write in professional, concise French. Never invent a test, deliverable, quantity, "
+            "Write in mature, project-specific structural-engineering French. Never invent a test, deliverable, quantity, "
             "investigation extent, code review, design task, or professional commitment that the "
             "client did not request or that the context does not justify. Avoid promotional wording. "
             "Prepare ONE proposal only, using this exact JSON schema: "
             "{\"project_title\":\"short professional title\","
             "\"file_code\":\"relevant 3-letter uppercase code\","
             "\"short_mandate\":\"one short professional paragraph, maximum 70 words\","
-            "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\",\"line 4\"]}. "
-            "Use a maximum of 4 service lines. Each line must be a specific engineering action, "
-            "short enough for an ODS table, and end without a period. Include 'le cas échéant' or "
-            "'selon le mandat' wherever the scope is conditional. "
+            "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\",\"line 4\",\"line 5 if justified\"]}. "
+            "Use 3 to 5 service lines. Each line must be a concrete engineering action or deliverable, "
+            "short enough for an ODS table, and end without a period. Order the services logically: "
+            "review of available documents, site work/relevé, structural analysis, design or technical "
+            "recommendations, and the requested signed/sealed deliverable. Do not add generic filler such "
+            "as client coordination, availability, meetings, communications, or project administration unless "
+            "the client specifically requested that service. Distinguish visual inspection from structural "
+            "analysis and design. Include 'le cas échéant' only for genuinely conditional work. "
             "Client request/context: " + raw_desc + ". "
             "Initially detected service: " + service + ". Property: " + property_type + ". "
             "Project address: " + addr + ". Return ONLY valid JSON."
@@ -276,7 +281,7 @@ def ask_desc_options(chat_id, uid):
         proposal = json.loads(result)
         service_lines = [
             str(line).strip().rstrip(".;") + ";"
-            for line in proposal.get("service_lines", [])[:4]
+            for line in proposal.get("service_lines", [])[:5]
             if str(line).strip()
         ]
         short_mandate = str(proposal.get("short_mandate") or raw_desc).strip()
@@ -311,7 +316,7 @@ def ask_desc_options(chat_id, uid):
             "Confirmer ce contenu avant de compléter les paramètres de l’ODS?",
             [
                 [{"text": "✅ Confirmer", "callback_data": "desc_0"}],
-                [{"text": "✏️ Modifier le mandat", "callback_data": "desc_custom"}],
+                [{"text": "✏️ Modifier le contenu technique", "callback_data": "desc_custom"}],
             ],
         )
     except Exception as e:
@@ -622,7 +627,7 @@ def client_contact_fields(data):
 
 
 def _build_service_desc(data):
-    """Max 4 short bullet lines for PDF table cell."""
+    """Up to 5 concise technical lines for the PDF table cell."""
     # Priority: service_lines from extraction
     raw = data.get('service_lines') or []
     if not raw:
@@ -630,7 +635,7 @@ def _build_service_desc(data):
         desc = data.get('desc') or data.get('service') or ''
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
     result = []
-    for line in raw[:4]:
+    for line in raw[:5]:
         compact_line = str(line).strip().rstrip(';. ')
         if len(compact_line) > 140:
             compact_line = compact_line[:137].rstrip() + '…'
@@ -783,7 +788,7 @@ def generate_excel(data):
     ws['B10'] = 'Courriel : ' + contact['email']
     ws['B12'] = f"{data.get('odsNum','ODS')}-{(data.get('name') or 'client').replace(' ','-')}"
     service_lines = data.get('service_lines') or []
-    ws['B47'] = '\n'.join(service_lines[:4]) or data.get('desc', data.get('service',''))
+    ws['B47'] = '\n'.join(service_lines[:5]) or data.get('desc', data.get('service',''))
     ws['C47'] = 'Forfait'
     ws['D47'] = 1
     ws['E47'] = float(data['price'])
@@ -1669,7 +1674,14 @@ def handle_update(data):
                     d['desc_confirmed'] = False
                     user_data[uid] = d
                     save_user_data()
-                    tg(chat_id, "✏️ Écrivez votre description technique:")
+                    tg(
+                        chat_id,
+                        "✏️ Collez votre contenu corrigé.\n\n"
+                        "Vous pouvez envoyer :\n"
+                        "• uniquement le nouveau mandat;\n"
+                        "• uniquement les lignes de services;\n"
+                        "• ou les deux avec les titres « Mandat : » et « Services : »."
+                    )
                 else:
                     idx = int(cdata.split('_')[1])
                     options = d.get('desc_options', [])
@@ -1788,7 +1800,16 @@ def handle_update(data):
                     if False:
                         pass
                     else:
-                        d[field] = text.strip()
+                        if field == 'desc':
+                            mandate, service_lines = parse_custom_technical_content(
+                                text,
+                                d.get('desc', ''),
+                            )
+                            d['desc'] = mandate
+                            if service_lines:
+                                d['service_lines'] = service_lines
+                        else:
+                            d[field] = text.strip()
                         d['waiting_field'] = None
                         if field == 'addr':
                             d['addr_confirmed'] = True
