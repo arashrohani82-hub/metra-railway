@@ -2049,7 +2049,18 @@ def handle_update(data):
                 elif d.get('waiting_invoice_amount'):
                     try:
                         amount = float(
-                            text.strip().replace('                    try:
+                            text.strip().replace('$', '').replace(' ', '').replace(',', '')
+                        )
+                        if amount <= 0:
+                            raise ValueError
+                        d['waiting_invoice_amount'] = False
+                        user_data[uid] = d
+                        save_user_data()
+                        show_invoice_preview(chat_id, uid, fixed_amount=amount)
+                    except Exception:
+                        tg(chat_id, "❌ Montant invalide (ex. 1250).")
+                elif d.get('waiting_price'):
+                    try:
                         price = int(text.strip().replace('$','').replace(',','').replace(' ',''))
                         d['price'] = price
                         d['waiting_price'] = False
