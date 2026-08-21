@@ -44,6 +44,9 @@ EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'arash.rohani@metrastructure.ca')
 INVOICE_EMAIL_SENDER = os.environ.get(
     'INVOICE_EMAIL_SENDER', 'accounting@metrastructure.ca'
 )
+INVOICE_DRIVE_OWNER = os.environ.get(
+    'INVOICE_DRIVE_OWNER', EMAIL_SENDER
+)
 INVOICE_FOLDER = os.environ.get(
     'INVOICE_FOLDER', 'Metra Structure Inc/Financial'
 ).strip('/')
@@ -1578,7 +1581,7 @@ def do_issue_invoice(chat_id, uid):
             return
         tg(chat_id, "⏳ Vérification du numéro et création de la facture...")
         token = graph_access_token()
-        items = list_onedrive_children(token, INVOICE_EMAIL_SENDER, INVOICE_FOLDER)
+        items = list_onedrive_children(token, INVOICE_DRIVE_OWNER, INVOICE_FOLDER)
         number = next_invoice_number(items)
         pdf_bytes, values, due_date = generate_invoice_pdf(
             data,
@@ -1589,7 +1592,7 @@ def do_issue_invoice(chat_id, uid):
         )
         filename = invoice_filename(number, data)
         upload_onedrive_path(
-            token, INVOICE_EMAIL_SENDER, f"{INVOICE_FOLDER}/{filename}",
+            token, INVOICE_DRIVE_OWNER, f"{INVOICE_FOLDER}/{filename}",
             pdf_bytes, 'application/pdf',
         )
         project_path = (
@@ -1599,7 +1602,7 @@ def do_issue_invoice(chat_id, uid):
         project_archive_error = None
         try:
             upload_onedrive_path(
-                token, INVOICE_EMAIL_SENDER, project_path,
+                token, INVOICE_DRIVE_OWNER, project_path,
                 pdf_bytes, 'application/pdf',
             )
         except Exception as exc:
