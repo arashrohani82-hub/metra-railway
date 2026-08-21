@@ -16,6 +16,7 @@ import openpyxl
 import random
 import requests as req
 from technical_content import parse_custom_technical_content
+from invoice_engine import generate_invoice_pdf, invoice_filename, invoice_values
 from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=10)
 project_creation_lock = threading.Lock()
+invoice_creation_lock = threading.Lock()
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -39,6 +41,12 @@ MS_CLIENT_ID = os.environ.get(
 )
 MS_CLIENT_SECRET = os.environ.get('MS_CLIENT_SECRET', '')
 EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'arash.rohani@metrastructure.ca')
+INVOICE_EMAIL_SENDER = os.environ.get(
+    'INVOICE_EMAIL_SENDER', 'accounting@metrastructure.ca'
+)
+INVOICE_FOLDER = os.environ.get(
+    'INVOICE_FOLDER', 'Metra Structure Inc/Financial'
+).strip('/')
 ALLOWED_USERS = {
     int(value.strip())
     for value in os.environ.get('ALLOWED_TELEGRAM_USER_IDS', '').split(',')
@@ -555,7 +563,11 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
         message = f"✅ Cette offre est déjà convertie : {record.get('project_folder', '')}"
         if record.get('project_web_url'):
             message += f"\n{record['project_web_url']}"
-        tg(chat_id, message)
+        tg(
+            chat_id,
+            message,
+            [[{'text': '🧾 Créer la facture initiale', 'callback_data': 'invoice_start'}]],
+        )
         return
     data = record.get('data') or {}
     tg(
@@ -1432,6 +1444,206 @@ def do_send_email(chat_id, uid):
         tg(chat_id, f"❌ Envoi impossible : {exc}")
 
 
+
+def next_invoice_number(items, year=None):
+    year = year or datetime.now().strftime('%y')
+    numbers = []
+    for item in items:
+        name = str(item.get('name') or '')
+        match = re.search(rf'FAC\s+P{year}-(\d{{1,4}})(?:-|\b)', name, re.I)
+        if not match:
+            match = re.search(r'(?:facture|invoice|FAC)[^0-9]*(\d{1,4})', name, re.I)
+        if match:
+            numbers.append(int(match.group(1)))
+    return max(numbers, default=0) + 1
+
+
+def invoice_email_html(data, invoice_number, total, due_date):
+    client = html.escape(str(data.get('name') or 'Client'))
+    project = html.escape(str(data.get('project_folder') or data.get('odsNum') or ''))
+    return (
+        f"<p>Bonjour {client},</p>"
+        f"<p>Veuillez trouver ci-joint la facture no {invoice_number} "
+        f"relative au projet <b>{project}</b>.</p>"
+        f"<p>Montant total : <b>{total:,.2f} $ CAD</b><br>"
+        f"Échéance : <b>{due_date.isoformat()}</b></p>"
+        "<p>N'hésitez pas à nous contacter pour toute question.</p>"
+        "<p>Cordialement,<br><b>Service de comptabilité</b><br>"
+        "Métra Structure Inc.<br>"
+        "accounting@metrastructure.ca</p>"
+    )
+
+
+def send_invoice_email(token, recipient, filename, pdf_bytes, data, invoice_number, values, due_date):
+    if not valid_client_email(recipient):
+        raise ValueError("Le courriel du client est manquant ou invalide.")
+    sender = urllib.parse.quote(INVOICE_EMAIL_SENDER, safe='')
+    subject = f"Facture no {invoice_number} - {data.get('project_folder') or data.get('odsNum') or 'Projet'}"
+    payload = {
+        'message': {
+            'subject': subject,
+            'body': {
+                'contentType': 'HTML',
+                'content': invoice_email_html(
+                    data, invoice_number, values['total'], due_date
+                ),
+            },
+            'toRecipients': [{'emailAddress': {'address': recipient}}],
+            'attachments': [{
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                'name': filename,
+                'contentType': 'application/pdf',
+                'contentBytes': base64.b64encode(pdf_bytes).decode('ascii'),
+            }],
+        },
+        'saveToSentItems': True,
+    }
+    response = req.post(
+        f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        json=payload,
+        timeout=45,
+    )
+    if response.status_code != 202:
+        logger.error("Invoice sendMail error: %s %s", response.status_code, response.text[:500])
+        raise RuntimeError("Microsoft 365 a refusé l'envoi depuis accounting.")
+
+
+def show_invoice_options(chat_id, uid):
+    data = user_data.get(str(uid), {})
+    if not data.get('project_created') or not data.get('project_folder'):
+        tg(chat_id, "⚠️ Convertissez d'abord l'offre en projet.")
+        return
+    if data.get('invoice_issued_at'):
+        tg(
+            chat_id,
+            f"⚠️ La facture no {data.get('invoice_number')} a déjà été émise pour cette étape.",
+        )
+        return
+    tg(
+        chat_id,
+        "🧾 Facture initiale\n\nChoisissez le mode de facturation :",
+        [
+            [{'text': '✅ 25 % du contrat', 'callback_data': 'invoice_pct:25'}],
+            [{'text': '📊 Autre pourcentage', 'callback_data': 'invoice_pct_other'}],
+            [{'text': '💵 Montant fixe', 'callback_data': 'invoice_fixed'}],
+            [{'text': '❌ Plus tard', 'callback_data': 'invoice_cancel'}],
+        ],
+    )
+
+
+def show_invoice_preview(chat_id, uid, percentage=None, fixed_amount=None):
+    uid = str(uid)
+    data = user_data.get(uid, {})
+    values = invoice_values(data.get('price') or 0, percentage, fixed_amount)
+    data['pending_invoice'] = {
+        'percentage': percentage,
+        'fixed_amount': fixed_amount,
+    }
+    user_data[uid] = data
+    save_user_data()
+    quantity = (
+        f"{float(percentage):g} % du contrat"
+        if percentage is not None else "Montant fixe"
+    )
+    tg(
+        chat_id,
+        "🧾 Aperçu de la facture\n\n"
+        f"Projet : {data.get('project_folder')}\n"
+        f"Client : {data.get('name')}\n"
+        f"Méthode : {quantity}\n"
+        f"Contrat : {values['contract']:,.2f} $\n"
+        f"Sous-total : {values['subtotal']:,.2f} $\n"
+        f"TPS : {values['gst']:,.2f} $\n"
+        f"TVQ : {values['qst']:,.2f} $\n"
+        f"Total : {values['total']:,.2f} $\n\n"
+        "Le prochain numéro disponible sera vérifié au moment de l'émission.",
+        [
+            [{'text': '✅ Confirmer et envoyer', 'callback_data': 'invoice_confirm'}],
+            [{'text': '✏️ Modifier', 'callback_data': 'invoice_start'}],
+            [{'text': '❌ Annuler', 'callback_data': 'invoice_cancel'}],
+        ],
+    )
+
+
+def do_issue_invoice(chat_id, uid):
+    uid = str(uid)
+    if not invoice_creation_lock.acquire(blocking=False):
+        tg(chat_id, "⏳ Une facture est déjà en cours de création.")
+        return
+    try:
+        data = user_data.get(uid, {})
+        pending = data.get('pending_invoice') or {}
+        if not data.get('project_folder'):
+            tg(chat_id, "❌ Numéro de projet introuvable.")
+            return
+        if data.get('invoice_issued_at'):
+            tg(chat_id, f"⚠️ Facture déjà émise : no {data.get('invoice_number')}.")
+            return
+        tg(chat_id, "⏳ Vérification du numéro et création de la facture...")
+        token = graph_access_token()
+        items = list_onedrive_children(token, INVOICE_EMAIL_SENDER, INVOICE_FOLDER)
+        number = next_invoice_number(items)
+        pdf_bytes, values, due_date = generate_invoice_pdf(
+            data,
+            number,
+            percentage=pending.get('percentage'),
+            fixed_amount=pending.get('fixed_amount'),
+            logo_path=LOGOS['metra'],
+        )
+        filename = invoice_filename(number, data)
+        upload_onedrive_path(
+            token, INVOICE_EMAIL_SENDER, f"{INVOICE_FOLDER}/{filename}",
+            pdf_bytes, 'application/pdf',
+        )
+        project_path = (
+            f"Metra Structure Inc/Projects/{datetime.now().strftime('%Y')}/"
+            f"{data['project_folder']}/Correspondence/{filename}"
+        )
+        project_archive_error = None
+        try:
+            upload_onedrive_path(
+                token, INVOICE_EMAIL_SENDER, project_path,
+                pdf_bytes, 'application/pdf',
+            )
+        except Exception as exc:
+            project_archive_error = str(exc)
+            logger.warning("Project invoice copy failed: %s", exc)
+
+        recipient = valid_client_email(data.get('email'))
+        send_invoice_email(
+            token, recipient, filename, pdf_bytes, data, number, values, due_date
+        )
+        data.update({
+            'invoice_number': number,
+            'invoice_filename': filename,
+            'invoice_subtotal': values['subtotal'],
+            'invoice_total': values['total'],
+            'invoice_due_date': due_date.isoformat(),
+            'invoice_issued_at': datetime.now().isoformat(timespec='seconds'),
+            'pending_invoice': None,
+        })
+        user_data[uid] = data
+        save_user_data()
+        record_sent_offer(uid, data)
+        tg(
+            chat_id,
+            f"✅ Facture no {number} créée et envoyée à {recipient}\n"
+            f"Fichier : {filename}\n"
+            f"Total : {values['total']:,.2f} $\n"
+            f"Échéance : {due_date.isoformat()}",
+        )
+        if project_archive_error:
+            tg(chat_id, "⚠️ Copie classée dans Financial, mais pas dans le dossier projet : " + project_archive_error)
+        else:
+            tg(chat_id, "☁️ Facture classée dans Financial et dans le dossier du projet.")
+    except Exception as exc:
+        logger.exception("Invoice generation failed")
+        tg(chat_id, f"❌ Création de la facture impossible : {exc}")
+    finally:
+        invoice_creation_lock.release()
+
+
 def do_create_project(chat_id, uid, offer_ref=None):
     if not project_creation_lock.acquire(blocking=False):
         tg(chat_id, "⏳ Une création de projet est déjà en cours. Réessayez dans un instant.")
@@ -1502,6 +1714,8 @@ def _do_create_project(chat_id, uid, offer_ref=None):
             user_data[uid] = data
             save_user_data()
             record_sent_offer(uid, data)
+        user_data[uid] = data
+        save_user_data()
         message = (
             f"✅ Projet créé : {folder_name}\n"
             "6 sous-dossiers créés.\n"
