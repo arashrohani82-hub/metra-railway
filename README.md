@@ -33,3 +33,5 @@ After an accepted ODS is converted to a project, the bot can:
 
 The invoice number is separate from the project number. Example: invoice 49 for project
 `P26-030-RES-...` is saved as `FAC P26-049-RES.pdf`.
+
+Deployment refresh: invoice workflow enabled after project creation.
