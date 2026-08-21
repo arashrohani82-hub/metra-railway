@@ -129,17 +129,27 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
         '<font color="#1155cc"><u>www.metrastructure.ca</u></font>',
         normal,
     )
-    invoice_meta = Paragraph(
-        f"<b>FACTURE</b><br/><br/>"
-        f"<b>N° facture:</b>&nbsp;&nbsp;&nbsp; {int(invoice_number)}<br/>"
-        f"<b>Date:</b>&nbsp;&nbsp;&nbsp; {invoice_date.isoformat()}<br/>"
-        f"<b>Page:</b>&nbsp;&nbsp;&nbsp; 1",
-        title,
+    invoice_meta = Table([
+        [Paragraph("<b>FACTURE</b>", title)],
+        [Paragraph(f"<b>N° facture:</b>&nbsp;&nbsp;&nbsp; {int(invoice_number)}", right)],
+        [Paragraph(f"<b>Date:</b>&nbsp;&nbsp;&nbsp; {invoice_date.isoformat()}", right)],
+        [Paragraph("<b>Page:</b>&nbsp;&nbsp;&nbsp; 1", right)],
+    ], colWidths=[5.1 * cm])
+    invoice_meta.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    header = Table(
+        [[logo, company, invoice_meta]],
+        colWidths=[4.5 * cm, 8.3 * cm, 5.1 * cm],
     )
-    story = [
-        Table([[logo, company, invoice_meta]], colWidths=[4.5 * cm, 8.3 * cm, 5.1 * cm]),
-        Spacer(1, 0.65 * cm),
-    ]
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story = [header, Spacer(1, 0.55 * cm)]
 
     client_name = escape(_client_name(data))
     address = escape(str(data.get("addr") or data.get("address") or "À confirmer")).replace("\n", "<br/>")
@@ -223,7 +233,9 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
         ("FONTSIZE", (0, 0), (-1, -1), 9.2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
-    story.append(Table([[tax_info, totals]], colWidths=[11.1 * cm, 6.8 * cm]))
+    summary_table = Table([[tax_info, totals]], colWidths=[11.1 * cm, 6.8 * cm])
+    summary_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(summary_table)
     story.append(Spacer(1, 0.35 * cm))
     story.append(Paragraph(
         f"Conditions : Net 30. Échu&nbsp;&nbsp;&nbsp;&nbsp; {due_date.isoformat()}<br/>"
