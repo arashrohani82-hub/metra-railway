@@ -563,11 +563,7 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
         message = f"✅ Cette offre est déjà convertie : {record.get('project_folder', '')}"
         if record.get('project_web_url'):
             message += f"\n{record['project_web_url']}"
-        tg(
-            chat_id,
-            message,
-            [[{'text': '🧾 Créer la facture initiale', 'callback_data': 'invoice_start'}]],
-        )
+        tg(chat_id, message)
         return
     data = record.get('data') or {}
     tg(
@@ -1674,7 +1670,13 @@ def _do_create_project(chat_id, uid, offer_ref=None):
         message = f"✅ Projet déjà créé : {folder}"
         if link:
             message += f"\n{link}"
-        tg(chat_id, message)
+        user_data[uid] = data
+        save_user_data()
+        tg(
+            chat_id,
+            message,
+            [[{'text': '🧾 Créer la facture initiale', 'callback_data': 'invoice_start'}]],
+        )
         return
     if not offer_ref and data.get('project_creating'):
         tg(chat_id, "⏳ Création du projet déjà en cours.")
@@ -1723,7 +1725,11 @@ def _do_create_project(chat_id, uid, offer_ref=None):
         )
         if web_url:
             message += f"\n\n🔗 {web_url}"
-        tg(chat_id, message)
+        tg(
+            chat_id,
+            message,
+            [[{'text': '🧾 Créer la facture initiale', 'callback_data': 'invoice_start'}]],
+        )
     except Exception as exc:
         data['project_creating'] = False
         if history_record is not None:
