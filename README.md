@@ -17,3 +17,19 @@ Attach a Railway volume at `/data` before deploying. After deployment, register 
 `/setup?key=<SETUP_SECRET>`
 
 Never commit real tokens or secret values.
+
+
+## Invoice generation MVP
+
+After an accepted ODS is converted to a project, the bot can:
+
+- prepare a 25% initial invoice, another percentage, or a fixed amount;
+- show GST, QST, and total before confirmation;
+- scan the OneDrive Financial folder for the next invoice number;
+- generate a one-page PDF based on invoice 48;
+- send from `accounting@metrastructure.ca` after explicit confirmation;
+- archive the PDF in Financial and the project Correspondence folder;
+- prevent a second initial invoice from the same project session.
+
+The invoice number is separate from the project number. Example: invoice 49 for project
+`P26-030-RES-...` is saved as `FAC P26-049-RES.pdf`.
