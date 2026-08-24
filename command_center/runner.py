@@ -21,6 +21,17 @@ def resilient_bot_status(bot):
 
 
 command_center.bot_status = resilient_bot_status
+
+_original_send_message = command_center.send_message
+
+
+def smart_send_message(chat_id, text, keyboard=None):
+    if text == "🧠 عکس دریافت شد؛ در حال ارسال به Bookkeeping…":
+        text = "🧠 عکس دریافت شد؛ در حال تحلیل و مسیریابی…"
+    return _original_send_message(chat_id, text, keyboard)
+
+
+command_center.send_message = smart_send_message
 _original_receipt_router = command_center.route_receipt_photo
 
 
