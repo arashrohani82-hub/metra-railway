@@ -13,8 +13,17 @@ app = ods.app
 ROUTER_SHARED_SECRET = os.getenv("ROUTER_SHARED_SECRET", "").strip()
 
 
+def _first_available_number(numbers, start=81):
+    """Return the first unused ODS number, ignoring isolated inflated/test numbers."""
+    used = {int(n) for n in numbers if str(n).isdigit()}
+    candidate = start
+    while candidate in used:
+        candidate += 1
+    return str(candidate).zfill(3)
+
+
 def _next_ods_number_from_onedrive():
-    """Return next ODS number from actual archived ODS files, without consuming it."""
+    """Return first unused ODS number from actual archived ODS files, without consuming it."""
     year = datetime.now().strftime("%y")
     token = ods.graph_access_token()
     sender = ods.microsoft_email_config()["EMAIL_SENDER"]
@@ -33,17 +42,15 @@ def _next_ods_number_from_onedrive():
                 numbers.append(int(match.group(1)))
             except Exception:
                 pass
-    return str(max(numbers, default=80) + 1).zfill(3)
+    return _first_available_number(numbers)
 
 
 def _safe_next_ods_number():
-    """Use OneDrive as source of truth; never touch the old inflated local counter."""
+    """Use real records only and choose the first gap; never touch the old local counter."""
     try:
         return _next_ods_number_from_onedrive()
     except Exception as exc:
         ods.logger.error("ODS OneDrive numbering lookup failed: %s", exc)
-        # Do not fall back to ods_counter.json because it may contain burned draft numbers.
-        # Use only sent-offer history as a secondary source.
         year = datetime.now().strftime("%y")
         numbers = []
         pattern = re.compile(rf"ODS{year}-(\d{{1,4}})(?:-|\b)", re.I)
@@ -59,11 +66,11 @@ def _safe_next_ods_number():
                         numbers.append(int(match.group(1)))
                     except Exception:
                         pass
-        return str(max(numbers, default=80) + 1).zfill(3)
+        return _first_available_number(numbers)
 
 
-# Critical numbering fix: all calls inside app.py now use this implementation.
-# Merely displaying/suggesting a number never increments any local counter.
+# All calls inside app.py now use this implementation. Merely displaying a
+# suggestion never increments or persists any counter.
 ods.get_next_project_num = _safe_next_ods_number
 
 
