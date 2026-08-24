@@ -143,6 +143,14 @@ def router_headers():
     return {"X-Router-Secret": ROUTER_SHARED_SECRET}
 
 
+def response_json_or_error(response):
+    try:
+        return response.json()
+    except ValueError:
+        body = (response.text or "").strip().replace("\n", " ")[:180]
+        raise RuntimeError(f"Bookkeeping HTTP {response.status_code}: non-JSON response {body}")
+
+
 def route_receipt_photo(user_id, chat_id, file_id):
     url = bookkeeping_url()
     if not url or not ROUTER_SHARED_SECRET:
@@ -155,11 +163,12 @@ def route_receipt_photo(user_id, chat_id, file_id):
             headers=router_headers(),
             data={"user_id": str(user_id)},
             files={"image": ("receipt.jpg", image, "image/jpeg")},
-            timeout=120,
+            timeout=150,
         )
-        data = response.json()
+        data = response_json_or_error(response)
         if not response.ok or not data.get("ok"):
-            raise RuntimeError(data.get("error") or f"HTTP {response.status_code}")
+            detail = data.get("detail") or data.get("error") or f"HTTP {response.status_code}"
+            raise RuntimeError(detail)
         if data.get("duplicate"):
             send_message(chat_id, f"⚠️ این رسید قبلاً ثبت شده است.\n{data.get('merchant','')} — ${float(data.get('total') or 0):.2f}")
             return
@@ -178,7 +187,7 @@ def route_receipt_photo(user_id, chat_id, file_id):
         send_message(chat_id, text, [[{"text":"🏢 شرکت","callback_data":"bk:type:company"},{"text":"👤 شخصی","callback_data":"bk:type:personal"}],[{"text":"❌ لغو","callback_data":"bk:cancel"}]])
     except Exception as exc:
         logger.exception("Receipt routing failed")
-        send_message(chat_id, f"❌ پردازش رسید انجام نشد: {type(exc).__name__}")
+        send_message(chat_id, f"❌ پردازش رسید انجام نشد:\n{str(exc)[:220]}")
 
 
 def bookkeeping_action(user_id, action):
@@ -188,9 +197,9 @@ def bookkeeping_action(user_id, action):
         json={"user_id": user_id, "action": action},
         timeout=30,
     )
-    data = response.json()
+    data = response_json_or_error(response)
     if not response.ok or not data.get("ok"):
-        raise RuntimeError(data.get("error") or f"HTTP {response.status_code}")
+        raise RuntimeError(data.get("detail") or data.get("error") or f"HTTP {response.status_code}")
     return data
 
 
@@ -222,7 +231,7 @@ def handle_bookkeeping_callback(user_id, chat_id, action):
             send_message(chat_id, "✅ هزینه عمومی شرکت ثبت شد.", [[{"text":"🏠 Main menu","callback_data":"home"}]])
     except Exception as exc:
         logger.exception("Bookkeeping callback failed")
-        send_message(chat_id, f"❌ عملیات Bookkeeping انجام نشد: {type(exc).__name__}")
+        send_message(chat_id, f"❌ عملیات Bookkeeping انجام نشد:\n{str(exc)[:220]}")
 
 
 def save_project_code(user_id, chat_id, text):
@@ -233,14 +242,14 @@ def save_project_code(user_id, chat_id, text):
             json={"user_id": user_id, "project_code": text},
             timeout=30,
         )
-        data = response.json()
+        data = response_json_or_error(response)
         if not response.ok or not data.get("ok"):
-            raise RuntimeError(data.get("error") or f"HTTP {response.status_code}")
+            raise RuntimeError(data.get("detail") or data.get("error") or f"HTTP {response.status_code}")
         PENDING_PROJECT_USERS.discard(user_id)
         send_message(chat_id, f"✅ هزینه برای پروژه {data.get('project_code')} ثبت شد.", [[{"text":"🏠 Main menu","callback_data":"home"}]])
     except Exception as exc:
         logger.exception("Project code save failed")
-        send_message(chat_id, f"❌ ثبت کد پروژه انجام نشد: {type(exc).__name__}")
+        send_message(chat_id, f"❌ ثبت کد پروژه انجام نشد:\n{str(exc)[:220]}")
 
 
 def handle_update(data):
@@ -268,7 +277,7 @@ def handle_update(data):
         elif action == "home": show_home(chat_id)
         elif action == "system": show_system(chat_id)
         elif action == "dashboard": show_dashboard(chat_id)
-        elif action.startswith("open:"): show_bot(chat_id, action.split(":",1)[1])
+        elif action.startswith("open:"): show_bot(chat_id, action.split(":1)[1])
         elif action.startswith("status:"):
             key = action.split(":",1)[1]
             bot = get_bot(key)
