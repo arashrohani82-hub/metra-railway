@@ -53,16 +53,6 @@ def send_message(chat_id, text, keyboard=None):
     return telegram("sendMessage", payload)
 
 
-def main_menu():
-    return [
-        [{"text":"🧾 ODS / Offers","callback_data":"open:ods"},{"text":"📚 Bookkeeping","callback_data":"open:bookkeeping"}],
-        [{"text":"🛡 Guardian","callback_data":"open:guardian"},{"text":"🌎 Intelligence","callback_data":"open:intelligence"}],
-        [{"text":"🗣 Language","callback_data":"open:language"},{"text":"🌐 Website","callback_data":"open:website"}],
-        [{"text":"🏗 Inspection / Report","callback_data":"open:inspection"}],
-        [{"text":"📊 CEO Dashboard","callback_data":"dashboard"},{"text":"⚙️ Bots & System","callback_data":"system"}],
-    ]
-
-
 def get_bot(key):
     return next((bot for bot in BOTS if bot["key"] == key), None)
 
@@ -73,6 +63,24 @@ def bot_username(bot):
 
 def bot_service_url(bot):
     return os.environ.get(bot["service_url_env"], "").strip().rstrip("/")
+
+
+def bot_open_button(key, label):
+    bot = get_bot(key)
+    username = bot_username(bot) if bot else ""
+    if username:
+        return {"text": label, "url": f"https://t.me/{username}"}
+    return {"text": f"⚠️ {label}", "callback_data": f"open:{key}"}
+
+
+def main_menu():
+    return [
+        [bot_open_button("ods", "🧾 ODS / Offers"), bot_open_button("bookkeeping", "📚 Bookkeeping")],
+        [bot_open_button("guardian", "🛡 Guardian"), bot_open_button("intelligence", "🌎 Intelligence")],
+        [bot_open_button("language", "🗣 Language"), bot_open_button("website", "🌐 Website")],
+        [bot_open_button("inspection", "🏗 Inspection / Report")],
+        [{"text":"📊 CEO Dashboard","callback_data":"dashboard"},{"text":"⚙️ Bots & System","callback_data":"system"}],
+    ]
 
 
 def bot_status(bot):
@@ -340,7 +348,7 @@ def setup():
 
 @app.route("/status")
 def status():
-    return jsonify({"status":"ok","service":"metra-command-center","registered_bots":len(BOTS),"smart_router":"receipt-bookkeeping"})
+    return jsonify({"status":"ok","service":"metra-command-center","registered_bots":len(BOTS),"smart_router":"receipt-bookkeeping","navigation":"direct-telegram-url-buttons"})
 
 
 if __name__ == "__main__":
