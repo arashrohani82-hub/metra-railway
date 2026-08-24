@@ -1,9 +1,12 @@
 import re
 from datetime import datetime
 
+from flask import jsonify
+
 import app as legacy
 
 app = legacy.app
+VERSION = 'ods-numbering-v2-onedrive'
 
 
 def _first_available(numbers, start=81):
@@ -31,11 +34,35 @@ def get_next_project_num_from_onedrive():
         if match:
             numbers.append(int(match.group(1)))
     result = _first_available(numbers)
-    legacy.logger.info('ODS numbering source=OneDrive next=%s used_max=%s', result, max(numbers, default=0))
+    legacy.logger.info(
+        'ODS numbering source=OneDrive next=%s used_max=%s count=%s',
+        result,
+        max(numbers, default=0),
+        len(set(numbers)),
+    )
     return result
 
 
-# IMPORTANT: ask_next_missing() in app.py resolves this module-global function at call time.
-# Replace the old counter-based function only after app.py has fully loaded.
+# Replace the legacy counter implementation after app.py has completely loaded.
 legacy.get_next_project_num = get_next_project_num_from_onedrive
-legacy.logger.info('ODS NUMBERING FIX ACTIVE: OneDrive first-gap strategy')
+legacy.logger.info('ODS NUMBERING FIX ACTIVE: %s', VERSION)
+
+
+@app.route('/debug/ods-number')
+def debug_ods_number():
+    """Temporary diagnostic endpoint: confirms the deployed code and numbering source."""
+    try:
+        next_number = get_next_project_num_from_onedrive()
+        return jsonify({
+            'ok': True,
+            'version': VERSION,
+            'next_number': next_number,
+            'function': getattr(legacy.get_next_project_num, '__name__', ''),
+        })
+    except Exception as exc:
+        return jsonify({
+            'ok': False,
+            'version': VERSION,
+            'error': str(exc),
+            'function': getattr(legacy.get_next_project_num, '__name__', ''),
+        }), 500
