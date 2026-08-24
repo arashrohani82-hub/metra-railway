@@ -22,6 +22,7 @@ ALLOWED_USERS = {
 BOTS = [
     {"key":"ods","name":"ODS / Offers","emoji":"🧾","username_env":"ODS_BOT_USERNAME","service_url_env":"ODS_SERVICE_URL","repo":"arashrohani82-hub/metra-railway"},
     {"key":"finance","name":"Finance","emoji":"💰","username_env":"FINANCIAL_BOT_USERNAME","service_url_env":"FINANCIAL_SERVICE_URL","repo":"arashrohani82-hub/metra-financial-bot"},
+    {"key":"bookkeeping","name":"Bookkeeping","emoji":"📚","username_env":"BOOKKEEPING_BOT_USERNAME","service_url_env":"BOOKKEEPING_SERVICE_URL","repo":"arashrohani82-hub/metra-bookkeeping-bot"},
     {"key":"guardian","name":"Guardian","emoji":"🛡","username_env":"GUARDIAN_BOT_USERNAME","service_url_env":"GUARDIAN_SERVICE_URL","repo":"arashrohani82-hub/metra-guardian"},
     {"key":"intelligence","name":"CEO Intelligence","emoji":"🌎","username_env":"INTELLIGENCE_BOT_USERNAME","service_url_env":"INTELLIGENCE_SERVICE_URL","repo":"arashrohani82-hub/metra-ceo-intelligence-agent"},
     {"key":"language","name":"Language Coach","emoji":"🗣","username_env":"LANGUAGE_BOT_USERNAME","service_url_env":"LANGUAGE_SERVICE_URL","repo":"arashrohani82-hub/metra-language-coach-bot"},
@@ -49,9 +50,9 @@ def send_message(chat_id, text, keyboard=None):
 def main_menu():
     return [
         [{"text":"🧾 ODS / Offers","callback_data":"open:ods"},{"text":"💰 Finance","callback_data":"open:finance"}],
-        [{"text":"🛡 Guardian","callback_data":"open:guardian"},{"text":"🌎 Intelligence","callback_data":"open:intelligence"}],
-        [{"text":"🗣 Language","callback_data":"open:language"},{"text":"🌐 Website","callback_data":"open:website"}],
-        [{"text":"🏗 Inspection / Report","callback_data":"open:inspection"}],
+        [{"text":"📚 Bookkeeping","callback_data":"open:bookkeeping"},{"text":"🛡 Guardian","callback_data":"open:guardian"}],
+        [{"text":"🌎 Intelligence","callback_data":"open:intelligence"},{"text":"🗣 Language","callback_data":"open:language"}],
+        [{"text":"🌐 Website","callback_data":"open:website"},{"text":"🏗 Inspection / Report","callback_data":"open:inspection"}],
         [{"text":"📊 CEO Dashboard","callback_data":"dashboard"},{"text":"⚙️ Bots & System","callback_data":"system"}],
     ]
 
