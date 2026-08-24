@@ -277,7 +277,7 @@ def handle_update(data):
         elif action == "home": show_home(chat_id)
         elif action == "system": show_system(chat_id)
         elif action == "dashboard": show_dashboard(chat_id)
-        elif action.startswith("open:"): show_bot(chat_id, action.split(":1)[1])
+        elif action.startswith("open:"): show_bot(chat_id, action.split(":",1)[1])
         elif action.startswith("status:"):
             key = action.split(":",1)[1]
             bot = get_bot(key)
