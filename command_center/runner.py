@@ -22,6 +22,21 @@ def resilient_bot_status(bot):
 
 command_center.bot_status = resilient_bot_status
 
+# Open Language Coach directly in the Telegram app. Keep normal t.me links for other bots.
+_original_bot_open_button = command_center.bot_open_button
+
+
+def direct_bot_open_button(key, label):
+    if key == "language":
+        bot = command_center.get_bot(key)
+        username = command_center.bot_username(bot) if bot else ""
+        if username:
+            return {"text": label, "url": f"tg://resolve?domain={username}"}
+    return _original_bot_open_button(key, label)
+
+
+command_center.bot_open_button = direct_bot_open_button
+
 _original_send_message = command_center.send_message
 
 
