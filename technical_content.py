@@ -86,8 +86,8 @@ def generate_unique_ods_code():
     raise RuntimeError("Aucun code ODS de trois lettres disponible")
 
 
-# app.py asks the LLM for a semantic file_code. Intercept only that proposal
-# JSON and replace the model value with our unique accounting identifier.
+# app.py asks the LLM for a semantic file_code. Intercept only that proposal JSON
+# and replace the model's value with a unique random three-letter identifier.
 _ORIGINAL_JSON_LOADS = json.loads
 
 
@@ -107,12 +107,6 @@ def _loads_with_unique_ods_code(payload, *args, **kwargs):
 if not getattr(json.loads, "_metra_unique_ods_codes", False):
     _loads_with_unique_ods_code._metra_unique_ods_codes = True
     json.loads = _loads_with_unique_ods_code
-
-
-# IMPORTANT: ODS NUMBERING DOES NOT LIVE HERE.
-# ods_router.py is the single source of truth and reads actual archived ODS files
-# from OneDrive. Keeping number logic out of this module avoids late runtime
-# monkey-patches overriding the correct OneDrive numbering implementation.
 
 
 def clean_service_line(value):
