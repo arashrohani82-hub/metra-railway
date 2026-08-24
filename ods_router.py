@@ -13,6 +13,60 @@ app = ods.app
 ROUTER_SHARED_SECRET = os.getenv("ROUTER_SHARED_SECRET", "").strip()
 
 
+def _next_ods_number_from_onedrive():
+    """Return next ODS number from actual archived ODS files, without consuming it."""
+    year = datetime.now().strftime("%y")
+    token = ods.graph_access_token()
+    sender = ods.microsoft_email_config()["EMAIL_SENDER"]
+    items = ods.list_onedrive_children(
+        token,
+        sender,
+        "Metra Structure Inc/Offre de service",
+    )
+    numbers = []
+    pattern = re.compile(rf"ODS{year}-(\d{{1,4}})(?:-|\b)", re.I)
+    for item in items:
+        name = str(item.get("name") or "")
+        match = pattern.search(name)
+        if match:
+            try:
+                numbers.append(int(match.group(1)))
+            except Exception:
+                pass
+    return str(max(numbers, default=80) + 1).zfill(3)
+
+
+def _safe_next_ods_number():
+    """Use OneDrive as source of truth; never touch the old inflated local counter."""
+    try:
+        return _next_ods_number_from_onedrive()
+    except Exception as exc:
+        ods.logger.error("ODS OneDrive numbering lookup failed: %s", exc)
+        # Do not fall back to ods_counter.json because it may contain burned draft numbers.
+        # Use only sent-offer history as a secondary source.
+        year = datetime.now().strftime("%y")
+        numbers = []
+        pattern = re.compile(rf"ODS{year}-(\d{{1,4}})(?:-|\b)", re.I)
+        for records in (ods.offers_history or {}).values():
+            if not isinstance(records, dict):
+                continue
+            for ref, record in records.items():
+                if not isinstance(record, dict) or not record.get("sent_at"):
+                    continue
+                match = pattern.search(str(ref))
+                if match:
+                    try:
+                        numbers.append(int(match.group(1)))
+                    except Exception:
+                        pass
+        return str(max(numbers, default=80) + 1).zfill(3)
+
+
+# Critical numbering fix: all calls inside app.py now use this implementation.
+# Merely displaying/suggesting a number never increments any local counter.
+ods.get_next_project_num = _safe_next_ods_number
+
+
 def _authorized():
     supplied = request.headers.get("X-Router-Secret", "")
     return bool(ROUTER_SHARED_SECRET) and hmac.compare_digest(supplied, ROUTER_SHARED_SECRET)
