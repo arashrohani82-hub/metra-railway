@@ -66,7 +66,6 @@ Choose the single best route."""
         response = ods.client.messages.create(
             model=model,
             max_tokens=180,
-            temperature=0,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
                 {"type": "text", "text": prompt},
@@ -102,7 +101,7 @@ def ods_extract():
 Rules: From/sender is the client; To/recipient may be Metra and must not be used as client. Subject may contain project address. Preserve visible address exactly. suggested_price is only a preliminary internal CAD suggestion."""
     try:
         response = ods.client.messages.create(
-            model=_model_name(), max_tokens=900, temperature=0,
+            model=_model_name(), max_tokens=900,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
                 {"type": "text", "text": prompt},
