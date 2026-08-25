@@ -67,6 +67,95 @@ def next_invoice_number_financial(_items=None, year=None):
 legacy.next_invoice_number = next_invoice_number_financial
 
 
+def _invoice_department(data):
+    """Return a safe French department phrase without relying on the random 3-letter code."""
+    text = " ".join([
+        str(data.get('project_title') or ''),
+        str(data.get('service') or ''),
+        str(data.get('desc') or ''),
+        str(data.get('project_folder') or ''),
+    ]).lower()
+
+    civil_terms = (
+        'civil', 'drainage', 'stormwater', 'pluvial', 'nivellement', 'grading',
+        'raccordement', 'aqueduc', 'égout', 'egout', 'voirie', 'site development',
+        'utility', 'municipal',
+    )
+    geotech_terms = (
+        'géotech', 'geotech', 'forage', 'borehole', 'test pit', 'sol ', 'soil ',
+        'capacité portante du sol', 'settlement', 'tassement',
+    )
+    structural_terms = (
+        'structur', 'mur porteur', 'poutre', 'charpente', 'fondation', 'seismic',
+        'sismique', 'lintel', 'colonne',
+    )
+
+    if any(term in text for term in civil_terms):
+        return 'notre département de génie civil'
+    if any(term in text for term in geotech_terms):
+        return 'notre département de géotechnique'
+    if any(term in text for term in structural_terms):
+        return 'notre département de structure'
+    return "nos services d’ingénierie"
+
+
+def invoice_email_html_standard(data, invoice_number, total, due_date):
+    """Standard Metra invoice email including all approved payment methods."""
+    project = legacy.html.escape(
+        str(data.get('project_folder') or data.get('odsNum') or 'votre projet')
+    )
+    department = legacy.html.escape(_invoice_department(data))
+
+    return f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.45;color:#1f1f1f">
+      <p>Bonjour,</p>
+
+      <p>Veuillez trouver ci-joint la facture N° {int(invoice_number):03d} correspondant aux services que nous vous avons fournis récemment par {department} concernant le projet :</p>
+
+      <p><strong>{project}</strong></p>
+
+      <p>Nous vous remercions pour votre confiance et espérons que nos services ont pleinement répondu à vos attentes.</p>
+
+      <p><strong>Méthodes de paiement :</strong><br>
+      Pour régler cette facture, vous pouvez choisir l’une des méthodes de paiement suivantes :</p>
+
+      <p><strong>Paiement par virement Interac (dépôt automatique) :</strong><br>
+      Tous les paiements effectués via Interac doivent être envoyés exclusivement à l’adresse courriel suivante :<br>
+      <a href="mailto:accounting@metrastructure.ca">accounting@metrastructure.ca</a><br>
+      Les paiements sont déposés automatiquement — aucune question de sécurité n’est requise.<br>
+      Veuillez noter qu’aucun paiement envoyé à une autre adresse ne sera pris en compte.</p>
+
+      <p><strong>Paiement par transfert bancaire :</strong><br>
+      Titulaire du compte : 9325-1532 QUEBEC INC.<br>
+      Transit : 00001<br>
+      Institution : 003<br>
+      Compte : 1099852<br>
+      Veuillez nous faire parvenir la confirmation de paiement par courriel à :
+      <a href="mailto:accounting@metrastructure.ca">accounting@metrastructure.ca</a></p>
+
+      <p><strong>Paiement par chèque :</strong><br>
+      Veuillez faire parvenir votre chèque à nos bureaux à l’adresse suivante :<br>
+      Libellé au nom de : 9325-1532 QUEBEC INC.<br>
+      1280 Rue Saint-Jacques<br>
+      Montréal, QC<br>
+      H3C 0G1</p>
+
+      <p>Merci de votre collaboration.</p>
+
+      <p>Cordialement,<br>
+      <strong>Service de comptabilité</strong><br>
+      Métra Structure Inc.<br>
+      <a href="mailto:accounting@metrastructure.ca">accounting@metrastructure.ca</a></p>
+    </div>
+    """
+
+
+# send_invoice_email() in app.py resolves this function from the legacy module at
+# call time, so overriding it here changes both preview-confirmed and future
+# invoice emails without touching the stable issuance flow.
+legacy.invoice_email_html = invoice_email_html_standard
+
+
 def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
     """Generate and send a real invoice PDF preview without saving or emailing it."""
     uid = str(uid)
@@ -143,6 +232,6 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
 
 legacy.show_invoice_preview = show_invoice_preview_pdf
 logger.info(
-    'INVOICE PDF PREVIEW FLOW ACTIVE — ARCHIVE=%s',
+    'INVOICE PDF PREVIEW FLOW ACTIVE — ARCHIVE=%s — STANDARD PAYMENT EMAIL ACTIVE',
     legacy.INVOICE_FOLDER,
 )
