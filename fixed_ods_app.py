@@ -6,7 +6,7 @@ from flask import jsonify
 import app as legacy
 
 app = legacy.app
-VERSION = 'ods-project-invoicing-v4'
+VERSION = 'ods-project-invoicing-v5'
 
 
 def _first_available(numbers, start=81):
@@ -47,10 +47,6 @@ legacy.get_next_project_num = get_next_project_num_from_onedrive
 legacy.logger.info('ODS NUMBERING FIX ACTIVE: %s', VERSION)
 
 
-# ---------------------------------------------------------------------------
-# Reusable project invoicing
-# ---------------------------------------------------------------------------
-
 def invoicing_main_menu():
     return {
         'keyboard': [
@@ -80,11 +76,7 @@ def converted_project_records(uid):
         if not folder:
             continue
         projects.append((ref, record))
-    return sorted(
-        projects,
-        key=lambda item: item[1].get('sent_at') or '',
-        reverse=True,
-    )
+    return sorted(projects, key=lambda item: item[1].get('sent_at') or '', reverse=True)
 
 
 def show_projects_for_invoice(chat_id, uid):
@@ -170,8 +162,6 @@ def show_invoice_options_multi(chat_id, uid):
 
 
 legacy.show_invoice_options = show_invoice_options_multi
-
-
 _original_issue_invoice = legacy.do_issue_invoice
 
 
@@ -221,8 +211,6 @@ def do_issue_invoice_multi(chat_id, uid):
 
 
 legacy.do_issue_invoice = do_issue_invoice_multi
-
-
 _original_handle_update = legacy.handle_update
 
 
@@ -231,15 +219,30 @@ def handle_update_with_project_invoicing(data):
         msg = data.get('message', {})
         cb = data.get('callback_query', {})
 
-        if msg and msg.get('text') in ('🧾 Facturation', '🧾 Facturer un projet'):
+        if msg:
+            text = msg.get('text', '')
             actor_id = msg.get('from', {}).get('id')
             chat_id = msg.get('chat', {}).get('id')
-            if actor_id not in legacy.ALLOWED_USERS:
-                if chat_id:
-                    legacy.tg(chat_id, "⛔ Ce bot est privé.")
+
+            if text in ('/start', '/menu'):
+                if actor_id not in legacy.ALLOWED_USERS:
+                    if chat_id:
+                        legacy.tg(chat_id, "⛔ Ce bot est privé.")
+                    return
+                legacy.tg(
+                    chat_id,
+                    "👋 Métra Structure\n\nChoisissez une opération :",
+                    reply_markup=invoicing_main_menu(),
+                )
                 return
-            show_projects_for_invoice(chat_id, str(actor_id))
-            return
+
+            if text == '🧾 Facturation' or text == '🧾 Facturer un projet':
+                if actor_id not in legacy.ALLOWED_USERS:
+                    if chat_id:
+                        legacy.tg(chat_id, "⛔ Ce bot est privé.")
+                    return
+                show_projects_for_invoice(chat_id, str(actor_id))
+                return
 
         if cb:
             cdata = cb.get('data', '')
