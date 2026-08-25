@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime
 
@@ -6,7 +7,7 @@ from flask import jsonify
 import app as legacy
 
 app = legacy.app
-VERSION = 'ods-project-invoicing-v5'
+VERSION = 'ods-project-invoicing-v6'
 
 
 def _first_available(numbers, start=81):
@@ -236,7 +237,7 @@ def handle_update_with_project_invoicing(data):
                 )
                 return
 
-            if text == '🧾 Facturation' or text == '🧾 Facturer un projet':
+            if text in ('🧾 Facturation', '🧾 Facturer un projet'):
                 if actor_id not in legacy.ALLOWED_USERS:
                     if chat_id:
                         legacy.tg(chat_id, "⛔ Ce bot est privé.")
@@ -272,6 +273,71 @@ def handle_update_with_project_invoicing(data):
 
 legacy.handle_update = handle_update_with_project_invoicing
 legacy.logger.info('PROJECT INVOICING FLOW ACTIVE: %s', VERSION)
+
+
+def sync_telegram_webhook():
+    """Force Telegram to deliver updates to the currently deployed Railway service."""
+    try:
+        public_url = str(os.environ.get('PUBLIC_URL') or '').strip().rstrip('/')
+        if not public_url:
+            domain = str(os.environ.get('RAILWAY_PUBLIC_DOMAIN') or '').strip()
+            if domain:
+                public_url = f'https://{domain}'
+        if not public_url or not legacy.BOT_TOKEN:
+            legacy.logger.warning(
+                'TELEGRAM WEBHOOK SYNC SKIPPED: public_url=%s bot_token=%s',
+                bool(public_url), bool(legacy.BOT_TOKEN),
+            )
+            return
+
+        webhook_url = f'{public_url}/webhook/telegram'
+        payload = {
+            'url': webhook_url,
+            'allowed_updates': ['message', 'callback_query'],
+            'drop_pending_updates': False,
+        }
+        if legacy.WEBHOOK_SECRET:
+            payload['secret_token'] = legacy.WEBHOOK_SECRET
+
+        response = legacy.req.post(
+            f'https://api.telegram.org/bot{legacy.BOT_TOKEN}/setWebhook',
+            json=payload,
+            timeout=15,
+        )
+        result = response.json() if response.content else {}
+        legacy.logger.info(
+            'TELEGRAM WEBHOOK SYNC: status=%s ok=%s url=%s description=%s',
+            response.status_code,
+            result.get('ok'),
+            webhook_url,
+            result.get('description', ''),
+        )
+    except Exception:
+        legacy.logger.exception('TELEGRAM WEBHOOK SYNC FAILED')
+
+
+sync_telegram_webhook()
+
+
+@app.route('/debug/telegram-webhook')
+def debug_telegram_webhook():
+    """Show Telegram's current webhook URL without exposing credentials."""
+    try:
+        response = legacy.req.get(
+            f'https://api.telegram.org/bot{legacy.BOT_TOKEN}/getWebhookInfo',
+            timeout=15,
+        )
+        payload = response.json()
+        result = payload.get('result') or {}
+        return jsonify({
+            'ok': payload.get('ok', False),
+            'version': VERSION,
+            'url': result.get('url', ''),
+            'pending_update_count': result.get('pending_update_count', 0),
+            'last_error_message': result.get('last_error_message', ''),
+        })
+    except Exception as exc:
+        return jsonify({'ok': False, 'version': VERSION, 'error': str(exc)}), 500
 
 
 @app.route('/debug/ods-number')
