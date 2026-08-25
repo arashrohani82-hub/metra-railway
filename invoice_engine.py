@@ -63,7 +63,7 @@ def invoice_filename(invoice_number, data, invoice_date=None):
 def _client_name(data):
     civility = str(data.get("civility") or "").strip()
     name = str(data.get("name") or data.get("client_name") or "Client").strip()
-    if civility and not name.lower().startswith(civility.lower()):
+    if civility and civility not in ("M./Mme", "M./Mme.") and not name.lower().startswith(civility.lower()):
         return f"{civility} {name}".strip()
     return name
 
@@ -71,9 +71,18 @@ def _client_name(data):
 def _service_lines(data):
     lines = data.get("service_lines") or []
     if not lines:
-        text = str(data.get("desc") or data.get("service") or "Services professionnels")
-        lines = [part.strip() for part in re.split(r"[;\n]+", text) if part.strip()]
-    return lines[:7]
+        title = str(data.get("project_title") or "").strip()
+        service = str(data.get("service") or "").strip()
+        desc = str(data.get("desc") or "").strip()
+        if title:
+            lines = [title]
+        elif service:
+            lines = [service]
+        elif desc:
+            lines = [part.strip() for part in re.split(r"[;\n]+", desc) if part.strip()]
+        else:
+            lines = ["Services d’ingénierie professionnels"]
+    return lines[:5]
 
 
 def _project_reference(data):
@@ -83,6 +92,20 @@ def _project_reference(data):
         or data.get("odsNum")
         or "À confirmer"
     )
+
+
+def _invoice_description(data, values):
+    scope = "<br/>".join(
+        f"• {escape(str(line).strip().rstrip(';'))};" for line in _service_lines(data)
+    )
+    if values["percentage"] is not None:
+        billing = (
+            f"<b>Facturation : {values['percentage']:g} % du contrat de "
+            f"{values['contract']:,.2f} $</b>"
+        )
+    else:
+        billing = "<b>Facturation : montant fixe</b>"
+    return billing + "<br/><br/>" + scope
 
 
 def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=None,
@@ -123,15 +146,15 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
         logo = Image(logo_path, width=4.0 * cm, height=1.65 * cm)
 
     company = Paragraph(
-        "<b>Métra Structure Inc. 9527-1532 Québec inc</b><br/>"
-        "1280 Rue Saint-Jacques, Québec H3C 0G1, Canada<br/>"
+        "<b>Métra Structure Inc.</b><br/>"
+        "1280, rue Saint-Jacques, Montréal (Québec) H3C 0G1<br/>"
         '<font color="#1155cc"><u>accounting@metrastructure.ca</u></font><br/>'
         '<font color="#1155cc"><u>www.metrastructure.ca</u></font>',
         normal,
     )
     invoice_meta = Table([
         [Paragraph("<b>FACTURE</b>", title)],
-        [Paragraph(f"<b>N° facture:</b>&nbsp;&nbsp;&nbsp; {int(invoice_number)}", right)],
+        [Paragraph(f"<b>N° facture:</b>&nbsp;&nbsp;&nbsp; {int(invoice_number):03d}", right)],
         [Paragraph(f"<b>Date:</b>&nbsp;&nbsp;&nbsp; {invoice_date.isoformat()}", right)],
         [Paragraph("<b>Page:</b>&nbsp;&nbsp;&nbsp; 1", right)],
     ], colWidths=[5.1 * cm])
@@ -154,27 +177,32 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
     client_name = escape(_client_name(data))
     address = escape(str(data.get("addr") or data.get("address") or "À confirmer")).replace("\n", "<br/>")
     phone = escape(str(data.get("phone") or "À compléter"))
-    sold = Paragraph(f"<b>Vendu à :</b><br/>{client_name}<br/>{address}<br/>{phone}", normal)
-    shipped = Paragraph(f"<b>Expédié à :</b><br/>{client_name}<br/>{address}<br/>{phone}", normal)
-    story.append(Table([[sold, shipped]], colWidths=[9.2 * cm, 8.7 * cm]))
-    story.append(Spacer(1, 0.3 * cm))
-    story.append(Paragraph(f"<b>Projet :</b> {escape(_project_reference(data))}", bold))
-    story.append(Spacer(1, 0.22 * cm))
-
-    description = "<br/>".join(
-        f"• {escape(str(line).strip().rstrip(';'))};" for line in _service_lines(data)
+    email = escape(str(data.get("email") or "À compléter"))
+    sold = Paragraph(
+        f"<b>Facturé à :</b><br/>{client_name}<br/>{address}<br/>{phone}<br/>{email}",
+        normal,
     )
+    project_address = escape(str(data.get("project_address") or data.get("addr") or data.get("address") or "À confirmer")).replace("\n", "<br/>")
+    project_box = Paragraph(
+        f"<b>Projet :</b><br/>{escape(_project_reference(data))}<br/>{project_address}",
+        normal,
+    )
+    story.append(Table([[sold, project_box]], colWidths=[9.2 * cm, 8.7 * cm]))
+    story.append(Spacer(1, 0.35 * cm))
+
+    description = _invoice_description(data, values)
     quantity = (
         f"{values['percentage']:g}%"
         if values["percentage"] is not None else "Forfait"
     )
+    unit_price_label = "Valeur contrat" if values["percentage"] is not None else "Montant"
     table_data = [
         [
             Paragraph("<b>Quantité</b>", normal),
             Paragraph("<b>Description</b>", normal),
             Paragraph("<b>Taxe</b>", normal),
-            Paragraph("<b>Prix unit.</b>", normal),
-            Paragraph("<b>Montant</b>", normal),
+            Paragraph(f"<b>{unit_price_label}</b>", normal),
+            Paragraph("<b>Montant facturé</b>", normal),
         ],
         [
             Paragraph(quantity, normal),
@@ -185,8 +213,8 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
         ],
         [
             Paragraph(
-                "Métra Structure Inc. 9527-1532 Québec inc TPS 5% : # 733902225 RT0001<br/>"
-                "Métra Structure Inc. 9527-1532 Québec inc TVQ 9.975% : # 1232151826 TQ0001",
+                "TPS 5% : # 733902225 RT0001 &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; "
+                "TVQ 9.975% : # 1232151826 TQ0001",
                 small,
             ),
             "", "", "", "",
@@ -194,8 +222,8 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
     ]
     services = Table(
         table_data,
-        colWidths=[1.9 * cm, 9.8 * cm, 1.05 * cm, 2.65 * cm, 2.6 * cm],
-        rowHeights=[0.55 * cm, 5.2 * cm, 0.7 * cm],
+        colWidths=[1.9 * cm, 9.55 * cm, 1.05 * cm, 2.75 * cm, 2.75 * cm],
+        rowHeights=[0.62 * cm, 4.7 * cm, 0.62 * cm],
     )
     services.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#B4CAE2")),
@@ -208,19 +236,16 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(services)
-    story.append(Spacer(1, 0.12 * cm))
+    story.append(Spacer(1, 0.15 * cm))
 
     tax_info = Paragraph(
-        "<b>Paramètres de taxes</b><br/>"
+        "<b>Taxes</b><br/>"
         "TPS (fédéral)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 5%<br/>"
-        "TVQ (Québec)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 9.975%<br/>"
-        "Remise (rabais)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 0%",
+        "TVQ (Québec)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 9.975%",
         normal,
     )
     totals = Table([
         ["Sous-total:", f"{values['subtotal']:,.2f}"],
-        ["Rabais:", "0.00"],
-        ["Sous-total après rabais:", f"{values['subtotal']:,.2f}"],
         ["TPS 5%:", f"{values['gst']:,.2f}"],
         ["TVQ 9.975%:", f"{values['qst']:,.2f}"],
         [Paragraph("<b>Montant total:</b>", right), Paragraph(f"<b>{values['total']:,.2f}</b>", right)],
@@ -238,9 +263,9 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
     story.append(summary_table)
     story.append(Spacer(1, 0.35 * cm))
     story.append(Paragraph(
-        f"Conditions : Net 30. Échu&nbsp;&nbsp;&nbsp;&nbsp; {due_date.isoformat()}<br/>"
-        "Remarques : Frais 2%, taux d’intérêt mensuel sur factures échues depuis 30 jours.<br/>"
-        "Chargé de projets : Arash Rohani",
+        f"Conditions : Net 30 — échéance : {due_date.isoformat()}<br/>"
+        "Remarques : intérêts de 2 % par mois sur les factures échues depuis 30 jours.<br/>"
+        "Chargé de projet : Arash Rohani, ing., P.Eng.",
         normal,
     ))
 
