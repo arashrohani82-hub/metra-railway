@@ -1,6 +1,10 @@
+import io
 import logging
+import re
+import urllib.parse
 from datetime import datetime
 
+import openpyxl
 import requests
 
 import fixed_ods_app as base
@@ -63,7 +67,6 @@ def force_telegram_webhook():
 
 
 def _find_history_by_project_folder(folder_name):
-    """Recover project metadata from any persisted offer-history record when available."""
     for _owner_uid, records in legacy.offers_history.items():
         for ref, record in (records or {}).items():
             data = record.get("data") or {}
@@ -73,8 +76,95 @@ def _find_history_by_project_folder(folder_name):
     return None, None
 
 
+def _strip_label(value, labels):
+    text = str(value or "").strip()
+    for label in labels:
+        if text.lower().startswith(label.lower()):
+            return text[len(label):].strip()
+    return text
+
+
+def recover_project_metadata_from_onedrive(folder_name):
+    """Recover client/scope details from the ODS Excel archived in Correspondence."""
+    try:
+        config = legacy.microsoft_email_config()
+        token = legacy.graph_access_token()
+        sender = config["EMAIL_SENDER"]
+        year = datetime.now().strftime("%Y")
+        correspondence = (
+            f"Metra Structure Inc/Projects/{year}/{folder_name}/Correspondence"
+        )
+        items = legacy.list_onedrive_children(token, sender, correspondence)
+        xlsx_items = [
+            item for item in items
+            if str(item.get("name") or "").lower().endswith(".xlsx")
+            and str(item.get("name") or "").upper().startswith("ODS")
+        ]
+        if not xlsx_items:
+            return {}
+        xlsx_items.sort(key=lambda item: str(item.get("name") or ""), reverse=True)
+        item = xlsx_items[0]
+        filename = str(item.get("name") or "")
+        relative_path = f"{correspondence}/{filename}"
+        encoded_path = urllib.parse.quote(relative_path, safe="/")
+        encoded_sender = urllib.parse.quote(sender, safe="")
+        response = requests.get(
+            f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/"
+            f"root:/{encoded_path}:/content",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            logger.warning("ODS metadata download failed: %s %s", response.status_code, filename)
+            return {}
+
+        wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
+        ws = wb["ODS"] if "ODS" in wb.sheetnames else wb[wb.sheetnames[0]]
+        identity = str(ws["B7"].value or "").strip()
+        civility = ""
+        name = identity
+        m = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", identity, re.I)
+        if m:
+            civility = m.group(1)
+            name = m.group(2).strip()
+        address = _strip_label(ws["B8"].value, ["Adresse :", "Adresse:"])
+        phone = _strip_label(ws["B9"].value, ["Cell. :", "Cell.:", "Téléphone :", "Téléphone:"])
+        email = _strip_label(ws["B10"].value, ["Courriel :", "Courriel:", "Email :", "Email:"])
+        description = str(ws["B47"].value or "").strip()
+        ods_num = filename.rsplit(".", 1)[0]
+
+        def clean_placeholder(value):
+            text = str(value or "").strip()
+            return "" if text in ("À compléter", "À confirmer", "—", "None") else text
+
+        result = {
+            "name": clean_placeholder(name),
+            "civility": clean_placeholder(civility),
+            "addr": clean_placeholder(address),
+            "project_address": clean_placeholder(address),
+            "phone": clean_placeholder(phone),
+            "email": clean_placeholder(email),
+            "desc": clean_placeholder(description),
+            "service": clean_placeholder(description),
+            "odsNum": ods_num,
+        }
+        if description:
+            result["service_lines"] = [
+                line.strip().lstrip("•").strip().rstrip(";")
+                for line in description.splitlines()
+                if line.strip()
+            ][:5]
+        logger.info(
+            "Recovered invoice metadata from %s: name=%s email=%s address=%s",
+            filename, bool(result.get("name")), bool(result.get("email")), bool(result.get("addr")),
+        )
+        return result
+    except Exception:
+        logger.exception("Unable to recover project metadata from ODS Excel")
+        return {}
+
+
 def onedrive_projects():
-    """Use OneDrive Projects as the source of truth for invoice project selection."""
     config = legacy.microsoft_email_config()
     token = legacy.graph_access_token()
     sender = config["EMAIL_SENDER"]
@@ -132,9 +222,6 @@ def select_onedrive_project(chat_id, uid, choice_id):
     session = legacy.user_data.get(uid, {})
     choice = (session.get("invoice_project_choices") or {}).get(str(choice_id))
 
-    # Telegram can occasionally deliver duplicate/delayed callback updates. If the
-    # same project was already selected, keep the current selection instead of
-    # turning a harmless duplicate into a "project not found" error.
     if not choice:
         selected = session.get("selected_onedrive_project") or {}
         if str(selected.get("choice_id") or "") == str(choice_id):
@@ -155,13 +242,13 @@ def select_onedrive_project(chat_id, uid, choice_id):
         data["project_created"] = True
         data["selected_offer_ref"] = ref
     else:
+        recovered = recover_project_metadata_from_onedrive(folder)
         data = {
+            **recovered,
             "project_folder": folder,
             "project_web_url": choice.get("web_url") or "",
             "project_created": True,
-            "price": 0,
-            "name": "",
-            "email": "",
+            "price": float(recovered.get("price") or 0),
         }
 
     data["pending_invoice"] = None
@@ -180,9 +267,12 @@ def select_onedrive_project(chat_id, uid, choice_id):
         data["waiting_invoice_contract_amount"] = True
         legacy.user_data[uid] = data
         legacy.save_user_data()
+        client_note = ""
+        if data.get("name"):
+            client_note = f"\nClient détecté : {data['name']}"
         legacy.tg(
             chat_id,
-            f"✅ Projet sélectionné : {folder}\n\n"
+            f"✅ Projet sélectionné : {folder}{client_note}\n\n"
             "💰 Quel est le montant total du contrat avant taxes?\n"
             "Exemple : 5500",
         )
@@ -195,7 +285,6 @@ _original_handle_update = legacy.handle_update
 
 
 def handle_update_runtime(data):
-    """Route invoicing project selection through OneDrive; delegate all other ODS actions."""
     try:
         msg = data.get("message", {})
         cb = data.get("callback_query", {})
