@@ -1,5 +1,6 @@
 import io
 import logging
+from datetime import datetime
 
 import ods_runtime as runtime
 
@@ -7,11 +8,18 @@ app = runtime.app
 legacy = runtime.legacy
 logger = logging.getLogger(__name__)
 
+# Exact invoice archive requested by management. Keep both preview numbering and
+# final issuance on the same OneDrive folder so the proposed and issued numbers
+# come from the same source of truth.
+legacy.INVOICE_FOLDER = (
+    f"Metra Structure Inc/Financial/Facture/{datetime.now().strftime('%Y')}"
+)
+
 _original_next_invoice_number = legacy.next_invoice_number
 
 
 def financial_invoice_items(max_depth=2):
-    """Collect invoice files from Financial and its immediate subfolders."""
+    """Collect invoice files from the configured invoice archive folder."""
     token = legacy.graph_access_token()
     owner = legacy.INVOICE_DRIVE_OWNER
     root = legacy.INVOICE_FOLDER
@@ -35,19 +43,24 @@ def financial_invoice_items(max_depth=2):
                 name = str(item.get('name') or '').strip()
                 if name:
                     queue.append((f"{path}/{name}", depth + 1))
-    logger.info("Financial invoice scan: %s items across %s folders", len(collected), len(visited))
+    logger.info(
+        "Invoice archive scan: root=%s items=%s folders=%s",
+        root,
+        len(collected),
+        len(visited),
+    )
     return collected
 
 
 def next_invoice_number_financial(_items=None, year=None):
-    """Use the whole Financial tree as source of truth for the next invoice number."""
+    """Use the configured invoice archive as source of truth for numbering."""
     try:
         items = financial_invoice_items()
         number = _original_next_invoice_number(items, year=year)
-        logger.info("Next invoice number from Financial tree: %s", number)
+        logger.info("Next invoice number from invoice archive: %s", number)
         return number
     except Exception:
-        logger.exception("Financial invoice numbering failed; using supplied items")
+        logger.exception("Invoice numbering failed; using supplied items")
         return _original_next_invoice_number(_items or [], year=year)
 
 
@@ -129,4 +142,7 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
 
 
 legacy.show_invoice_preview = show_invoice_preview_pdf
-logger.info('INVOICE PDF PREVIEW FLOW ACTIVE — FINANCIAL TREE NUMBERING')
+logger.info(
+    'INVOICE PDF PREVIEW FLOW ACTIVE — ARCHIVE=%s',
+    legacy.INVOICE_FOLDER,
+)
