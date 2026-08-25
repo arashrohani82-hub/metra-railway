@@ -118,6 +118,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid):
         }])
 
     session["invoice_project_choices"] = choices
+    session.pop("selected_onedrive_project", None)
     legacy.user_data[uid] = session
     legacy.save_user_data()
     text = "🧾 Facturation\n\nChoisissez le projet à facturer :"
@@ -130,7 +131,18 @@ def select_onedrive_project(chat_id, uid, choice_id):
     uid = str(uid)
     session = legacy.user_data.get(uid, {})
     choice = (session.get("invoice_project_choices") or {}).get(str(choice_id))
+
+    # Telegram can occasionally deliver duplicate/delayed callback updates. If the
+    # same project was already selected, keep the current selection instead of
+    # turning a harmless duplicate into a "project not found" error.
     if not choice:
+        selected = session.get("selected_onedrive_project") or {}
+        if str(selected.get("choice_id") or "") == str(choice_id):
+            if session.get("waiting_invoice_contract_amount"):
+                return
+            if float(session.get("price") or 0) > 0:
+                base.show_invoice_options_multi(chat_id, uid)
+            return
         legacy.tg(chat_id, "❌ Projet introuvable. Ouvrez de nouveau Facturation.")
         return
 
@@ -143,9 +155,6 @@ def select_onedrive_project(chat_id, uid, choice_id):
         data["project_created"] = True
         data["selected_offer_ref"] = ref
     else:
-        # Older/test projects can exist in OneDrive even when Railway local history
-        # has been lost. Keep the project selectable and ask only for the contract
-        # amount needed to calculate a percentage invoice.
         data = {
             "project_folder": folder,
             "project_web_url": choice.get("web_url") or "",
@@ -158,7 +167,12 @@ def select_onedrive_project(chat_id, uid, choice_id):
     data["pending_invoice"] = None
     data["waiting_invoice_percentage"] = False
     data["waiting_invoice_amount"] = False
-    data.pop("invoice_project_choices", None)
+    data["invoice_project_choices"] = session.get("invoice_project_choices") or {}
+    data["selected_onedrive_project"] = {
+        "choice_id": str(choice_id),
+        "folder": folder,
+        "web_url": choice.get("web_url") or "",
+    }
     legacy.user_data[uid] = data
     legacy.save_user_data()
 
