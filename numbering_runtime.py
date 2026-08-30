@@ -2,7 +2,7 @@ import logging
 import re
 from datetime import datetime
 
-import project_followup_runtime as guarded
+import offer_followup_runtime as guarded
 
 app = guarded.app
 legacy = guarded.legacy
