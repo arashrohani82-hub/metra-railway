@@ -1,7 +1,7 @@
 import json
 import os
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 
 OPEN_STATUSES = {"In process", "Hold"}
@@ -51,23 +51,11 @@ def is_open_offer(offer):
     return normalized_status(offer.get("status")) in OPEN_STATUSES
 
 
-def is_due(offer, state=None, today=None):
-    today = today or date.today()
-    if not is_open_offer(offer):
-        return False
-    stage = followup_stage(offer.get("date"), today)
-    if stage["stage"] == 0:
-        return False
-    next_on = parse_date((state or {}).get("next_followup_on"))
-    return next_on is None or next_on <= today
-
-
 def mark_followed(state=None, today=None):
     today = today or date.today()
     current = dict(state or {})
     current["followup_count"] = int(current.get("followup_count") or 0) + 1
     current["last_followup_at"] = today.isoformat()
-    current["next_followup_on"] = (today + timedelta(days=30)).isoformat()
     return current
 
 
