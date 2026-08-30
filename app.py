@@ -443,6 +443,7 @@ def main_menu():
         'keyboard': [
             [{'text': '📝 Nouvelle offre'}],
             [{'text': '📁 Convertir une offre en projet'}],
+            [{'text': '🧾 Facturation'}],
             [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
             [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
         ],
