@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 STORE = FollowupStore(os.path.join(legacy.DATA_DIR, "offer_followups.json"))
 TIMEZONE_NAME = os.environ.get("OFFER_FOLLOWUP_TIMEZONE", "America/Toronto")
 FOLLOWUP_HOUR = int(os.environ.get("OFFER_FOLLOWUP_HOUR", "9"))
-WEEKDAY = int(os.environ.get("OFFER_FOLLOWUP_WEEKDAY", "0"))
 SCHEDULER_ENABLED = os.environ.get("OFFER_FOLLOWUP_SCHEDULER_ENABLED", "1") != "0"
 _base_main_menu = guarded.final_main_menu
 
@@ -246,14 +245,10 @@ def _scheduler_loop():
             now = local_now()
             today = now.date().isoformat()
             if now.hour == FOLLOWUP_HOUR:
-                if STORE.scheduler_value("last_daily") != today:
+                if now.day == 1 and STORE.scheduler_value("last_monthly") != today:
                     for chat_id in sorted(legacy.ALLOWED_USERS):
-                        show_open_offers(chat_id, str(chat_id), due_only=True, intro="⏰ Rappel quotidien")
-                    STORE.scheduler_value("last_daily", today)
-                if now.weekday() == WEEKDAY and STORE.scheduler_value("last_weekly") != today:
-                    for chat_id in sorted(legacy.ALLOWED_USERS):
-                        show_open_offers(chat_id, str(chat_id), intro="📅 Revue hebdomadaire")
-                    STORE.scheduler_value("last_weekly", today)
+                        show_open_offers(chat_id, str(chat_id), intro="📅 Revue mensuelle")
+                    STORE.scheduler_value("last_monthly", today)
         except Exception:
             logger.exception("Offer follow-up scheduler failed")
         threading.Event().wait(900)
@@ -296,7 +291,7 @@ def handle_update_offer_followup(data):
                 legacy.tg(chat_id, "❌ Offre introuvable.")
                 return
             STORE.mark_followed(offer["reference"], local_now().date())
-            legacy.tg(chat_id, "✅ Relance enregistrée. Prochain rappel interne dans 3 jours.")
+            legacy.tg(chat_id, "✅ Relance enregistrée. Prochain rappel interne dans 30 jours.")
             show_offer(chat_id, uid)
         elif cdata.startswith("of_status:"):
             offer = _selected(uid)
