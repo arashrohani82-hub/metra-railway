@@ -316,7 +316,9 @@ def sync_telegram_webhook():
         legacy.logger.exception('TELEGRAM WEBHOOK SYNC FAILED')
 
 
-sync_telegram_webhook()
+# Webhook ownership belongs exclusively to ods_runtime.  Calling the legacy
+# synchronizer here can restore an obsolete Railway domain before the active
+# runtime gets a chance to register its canonical URL.
 
 
 @app.route('/debug/telegram-webhook')
