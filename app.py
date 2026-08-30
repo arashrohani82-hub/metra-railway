@@ -659,7 +659,7 @@ def _build_service_desc(data):
         desc = data.get('desc') or data.get('service') or ''
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
     result = []
-    for line in raw[:5]:
+    for line in raw[:4]:
         compact_line = str(line).strip().rstrip(';. ')
         if len(compact_line) > 140:
             compact_line = compact_line[:137].rstrip() + '…'
