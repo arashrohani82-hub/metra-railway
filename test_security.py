@@ -30,6 +30,18 @@ def test_telegram_menu_and_commands_are_registered():
     assert "setMyCommands" in SOURCE
 
 
+def test_legacy_runtime_does_not_claim_the_telegram_webhook():
+    fixed_runtime = Path("fixed_ods_app.py").read_text(encoding="utf-8")
+    assert "\nsync_telegram_webhook()\n" not in fixed_runtime
+
+
+def test_active_runtime_retries_telegram_rate_limits():
+    runtime = Path("ods_runtime.py").read_text(encoding="utf-8")
+    assert 'os.environ.get(\n    "ODS_PUBLIC_URL"' in runtime
+    assert "for attempt in range(3):" in runtime
+    assert 'response.status_code != 429' in runtime
+
+
 def test_ods_prompt_generates_one_concise_engineering_scope():
     assert "Prepare ONE proposal only" in SOURCE
     assert "maximum 70 words" in SOURCE

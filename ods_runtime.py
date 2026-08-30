@@ -1,6 +1,8 @@
 import io
 import logging
+import os
 import re
+import time
 import urllib.parse
 from datetime import datetime
 
@@ -13,7 +15,9 @@ app = base.app
 legacy = base.legacy
 logger = logging.getLogger(__name__)
 
-PUBLIC_URL = "https://web-production-c7adbe.up.railway.app"
+PUBLIC_URL = os.environ.get(
+    "ODS_PUBLIC_URL", "https://web-production-c7adbe.up.railway.app"
+).strip().rstrip("/")
 WEBHOOK_URL = f"{PUBLIC_URL}/webhook/telegram"
 
 
@@ -51,11 +55,21 @@ def force_telegram_webhook():
         if secret:
             payload["secret_token"] = secret
 
-        result = requests.post(
-            f"https://api.telegram.org/bot{token}/setWebhook",
-            json=payload,
-            timeout=15,
-        ).json()
+        result = {}
+        for attempt in range(3):
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/setWebhook",
+                json=payload,
+                timeout=15,
+            )
+            result = response.json() if response.content else {}
+            if result.get("ok"):
+                break
+            retry_after = int((result.get("parameters") or {}).get("retry_after") or 0)
+            if response.status_code != 429 and not retry_after:
+                break
+            if attempt < 2:
+                time.sleep(max(1, min(retry_after, 5)))
         logger.info(
             "ODS RUNTIME SET WEBHOOK: ok=%s url=%s description=%s",
             result.get("ok"),
