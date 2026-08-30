@@ -26,6 +26,7 @@ def test_runtime_data_uses_persistent_directory():
 
 def test_telegram_menu_and_commands_are_registered():
     assert "def main_menu():" in SOURCE
+    assert "{'text': '🧾 Facturation'}" in SOURCE
     assert "setMyCommands" in SOURCE
 
 
