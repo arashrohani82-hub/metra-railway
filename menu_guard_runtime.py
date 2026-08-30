@@ -1,6 +1,6 @@
 import logging
 
-import invoice_control_runtime as control
+import dashboard_runtime as control
 
 app = control.app
 legacy = control.legacy
@@ -16,6 +16,7 @@ def final_main_menu():
             [{'text': '📝 Nouvelle offre'}],
             [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '🧾 Facturation'}],
+            [{'text': '📊 Tableau de bord'}],
             [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
             [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
         ],
@@ -35,6 +36,7 @@ MAIN_MENU_COMMANDS = {
     "📁 Convertir une offre en projet",
     "🧾 Facturation",
     "🧾 Facturer un projet",
+    "📊 Tableau de bord",
     "📷 Envoyer une photo",
     "📋 Coller un texte",
     "❓ Aide",
