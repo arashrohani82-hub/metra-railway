@@ -2,6 +2,7 @@ import urllib.parse
 import re
 import hmac
 import html
+import copy
 import os, json, io, shutil, base64, logging, threading
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
@@ -26,6 +27,7 @@ app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=10)
 project_creation_lock = threading.Lock()
 invoice_creation_lock = threading.Lock()
+ods_list_lock = threading.Lock()
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -49,6 +51,9 @@ INVOICE_DRIVE_OWNER = os.environ.get(
 )
 INVOICE_FOLDER = os.environ.get(
     'INVOICE_FOLDER', 'Metra Structure Inc/Financial'
+).strip('/')
+ODS_LIST_PATH = os.environ.get(
+    'ODS_LIST_PATH', 'Metra Structure Inc/Offre de service/List.xlsx'
 ).strip('/')
 ALLOWED_USERS = {
     int(value.strip())
@@ -510,6 +515,7 @@ def record_sent_offer(uid, data):
         'converted': bool(existing.get('converted') or data.get('project_created')),
         'project_folder': existing.get('project_folder') or data.get('project_folder') or '',
         'project_web_url': existing.get('project_web_url') or data.get('project_web_url') or '',
+        'status': 'Accept' if data.get('project_created') else (existing.get('status') or 'In process'),
     }
     save_offers_history()
     return ref
@@ -520,7 +526,7 @@ def pending_offer_records(uid, query=''):
     records = offers_history.get(str(uid), {})
     pending = []
     for ref, record in records.items():
-        if record.get('converted'):
+        if record.get('converted') or record.get('status') in {'Refused', 'Closed'}:
             continue
         data = record.get('data') or {}
         searchable = ' '.join([
@@ -576,7 +582,14 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
         f"Client : {data.get('name') or 'Non indiqué'}\n"
         f"Projet : {data.get('project_title') or data.get('service') or 'Non indiqué'}\n"
         f"Envoyée : {record.get('sent_at') or 'Non indiqué'}",
-        [[{'text': '✅ Créer le projet', 'callback_data': f'offer_convert:{ref}'}]],
+        [
+            [{'text': '✅ Créer le projet', 'callback_data': f'offer_convert:{ref}'}],
+            [
+                {'text': '❌ Refused', 'callback_data': f'offer_status:Refused:{ref}'},
+                {'text': '🔒 Closed', 'callback_data': f'offer_status:Closed:{ref}'},
+            ],
+            [{'text': '⏸ Hold', 'callback_data': f'offer_status:Hold:{ref}'}],
+        ],
     )
 
 def draw_header_footer(canvas, doc):
@@ -646,7 +659,7 @@ def _build_service_desc(data):
         desc = data.get('desc') or data.get('service') or ''
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
     result = []
-    for line in raw[:5]:
+    for line in raw[:4]:
         compact_line = str(line).strip().rstrip(';. ')
         if len(compact_line) > 140:
             compact_line = compact_line[:137].rstrip() + '…'
@@ -1125,6 +1138,170 @@ def upload_onedrive_path(token, sender, relative_path, content, content_type):
         raise RuntimeError(f"échec de l'archivage de {relative_path}")
 
 
+def download_onedrive_path(token, sender, relative_path):
+    """Download a file from the sender's OneDrive."""
+    encoded_path = urllib.parse.quote(relative_path, safe='/')
+    encoded_sender = urllib.parse.quote(sender, safe='')
+    response = req.get(
+        f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/"
+        f"root:/{encoded_path}:/content",
+        headers={'Authorization': f'Bearer {token}'},
+        timeout=60,
+    )
+    if response.status_code != 200:
+        logger.error(
+            "OneDrive download error for %s: %s %s",
+            relative_path,
+            response.status_code,
+            response.text[:500],
+        )
+        raise RuntimeError(f"impossible de télécharger {relative_path}")
+    return response.content
+
+
+ODS_LIST_HEADERS = {
+    'no': 'No',
+    'year': 'Year ',
+    'month': 'Month',
+    'description': 'Description',
+    'price': 'Price($)',
+    'date': 'Date',
+    'status': 'Status',
+    'accepted_price': 'Accepted Price',
+    'source': 'Source',
+    'contact': 'Contact',
+    'accepted_at': 'Date of acceptation',
+    'email': 'Email',
+}
+
+
+def _ods_event_datetime(data, accepted_at=None):
+    value = accepted_at or data.get('email_sent_at') or data.get('date')
+    if isinstance(value, datetime):
+        return value
+    if value:
+        try:
+            return datetime.fromisoformat(str(value).replace('Z', '+00:00')).replace(tzinfo=None)
+        except ValueError:
+            pass
+    return datetime.now()
+
+
+def _copy_ods_list_row_style(ws, source_row, target_row):
+    for col in range(1, ws.max_column + 1):
+        source = ws.cell(source_row, col)
+        target = ws.cell(target_row, col)
+        if source.has_style:
+            target._style = copy.copy(source._style)
+        if source.number_format:
+            target.number_format = source.number_format
+        if source.alignment:
+            target.alignment = copy.copy(source.alignment)
+        if source.protection:
+            target.protection = copy.copy(source.protection)
+    if source_row in ws.row_dimensions:
+        ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+
+
+def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=None):
+    """Insert or update one ODS row, keyed by the full ODS reference."""
+    event_date = _ods_event_datetime(data, accepted_at)
+    reference = offer_reference(data)
+    reference_year = re.search(r'^ODS(\d{2})-', reference, re.I)
+    sheet_year = int(f"20{reference_year.group(1)}") if reference_year else event_date.year
+    sheet_name = f"data {sheet_year}"
+    if sheet_name not in workbook.sheetnames:
+        raise RuntimeError(f"onglet {sheet_name} introuvable dans List.xlsx")
+    ws = workbook[sheet_name]
+    headers = {
+        str(cell.value or '').strip(): cell.column
+        for cell in ws[1]
+        if cell.value is not None
+    }
+    columns = {}
+    for key, label in ODS_LIST_HEADERS.items():
+        col = headers.get(label.strip())
+        if not col:
+            raise RuntimeError(f"colonne {label} introuvable dans List.xlsx")
+        columns[key] = col
+
+    target_row = None
+    last_data_row = 1
+    highest_no = 0
+    for row in range(2, ws.max_row + 1):
+        number = ws.cell(row, columns['no']).value
+        description = str(ws.cell(row, columns['description']).value or '')
+        if number not in (None, '') or description:
+            last_data_row = row
+        try:
+            highest_no = max(highest_no, int(number or 0))
+        except (TypeError, ValueError):
+            pass
+        if reference and reference in description.upper():
+            target_row = row
+            break
+
+    is_new = target_row is None
+    if is_new:
+        target_row = last_data_row + 1
+        _copy_ods_list_row_style(ws, last_data_row, target_row)
+        ws.cell(target_row, columns['no']).value = highest_no + 1
+
+    price = float(data.get('price') or 0)
+    accepted = status == 'Accept'
+    sent_date = _ods_event_datetime(data)
+    ws.cell(target_row, columns['year']).value = sheet_year
+    ws.cell(target_row, columns['month']).value = sent_date.strftime('%B')
+    ws.cell(target_row, columns['description']).value = str(data.get('odsNum') or reference)
+    ws.cell(target_row, columns['price']).value = price
+    ws.cell(target_row, columns['date']).value = sent_date
+    ws.cell(target_row, columns['status']).value = status
+    ws.cell(target_row, columns['accepted_price']).value = price if accepted else 0
+    source = data.get('source') or data.get('lead_source') or data.get('referral_source')
+    contact = normalize_client_name(data.get('name'))
+    email = str(data.get('email') or '').strip()
+    if is_new or source:
+        ws.cell(target_row, columns['source']).value = source or ''
+    if is_new or contact:
+        ws.cell(target_row, columns['contact']).value = contact
+    ws.cell(target_row, columns['accepted_at']).value = event_date if accepted else None
+    if is_new or email:
+        ws.cell(target_row, columns['email']).value = email
+    ws.cell(target_row, columns['date']).number_format = 'yyyy-mm-dd'
+    ws.cell(target_row, columns['accepted_at']).number_format = 'yyyy-mm-dd'
+
+    for table in ws.tables.values():
+        start, _ = table.ref.split(':', 1)
+        end_col = openpyxl.utils.get_column_letter(ws.max_column)
+        table.ref = f"{start}:{end_col}{max(target_row, last_data_row)}"
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    workbook.calculation.calcMode = 'auto'
+    return target_row
+
+
+def sync_ods_list(data, status='In process', accepted_at=None):
+    """Safely synchronize an ODS status with OneDrive List.xlsx."""
+    with ods_list_lock:
+        config = microsoft_email_config()
+        token = graph_access_token()
+        sender = config['EMAIL_SENDER']
+        content = download_onedrive_path(token, sender, ODS_LIST_PATH)
+        workbook = openpyxl.load_workbook(io.BytesIO(content))
+        row = upsert_ods_list_workbook(workbook, data, status, accepted_at)
+        output = io.BytesIO()
+        workbook.save(output)
+        upload_onedrive_path(
+            token,
+            sender,
+            ODS_LIST_PATH,
+            output.getvalue(),
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        logger.info("ODS List synchronized: %s status=%s row=%s", offer_reference(data), status, row)
+        return row
+
+
 def upload_onedrive_file(token, sender, filename, content, content_type):
     """Upload or replace one file in the approved ODS archive folder."""
     upload_onedrive_path(
@@ -1412,6 +1589,12 @@ def do_send_email(chat_id, uid):
         user_data[uid] = data
         save_user_data()
         record_sent_offer(uid, data)
+        list_sync_error = None
+        try:
+            sync_ods_list(data, 'In process')
+        except Exception as exc:
+            list_sync_error = str(exc)
+            logger.exception("ODS List initial synchronization failed")
         tg(
             chat_id,
             f"✅ Courriel envoyé à {recipient}\n"
@@ -1430,10 +1613,21 @@ def do_send_email(chat_id, uid):
                 "☁️ Archives OneDrive enregistrées :\n"
                 + "\n".join(f"• {name}" for name in archive_files),
             )
+        if list_sync_error:
+            tg(chat_id, "⚠️ Offre envoyée, mais List.xlsx n'a pas été mis à jour : " + list_sync_error)
+        else:
+            tg(chat_id, "📊 List.xlsx mis à jour : In process")
         tg(
             chat_id,
-            "Cette offre est-elle devenue un projet?",
-            [[{'text': '✅ Convertir en projet', 'callback_data': 'project_create'}]],
+            "Mettre à jour le statut de cette offre :",
+            [
+                [{'text': '✅ Convertir en projet', 'callback_data': 'project_create'}],
+                [
+                    {'text': '❌ Refused', 'callback_data': 'ods_status:Refused'},
+                    {'text': '🔒 Closed', 'callback_data': 'ods_status:Closed'},
+                ],
+                [{'text': '⏸ Hold', 'callback_data': 'ods_status:Hold'}],
+            ],
         )
     except Exception as exc:
         data['email_sending'] = False
@@ -1653,6 +1847,28 @@ def do_create_project(chat_id, uid, offer_ref=None):
         project_creation_lock.release()
 
 
+def do_update_ods_status(chat_id, uid, status, offer_ref=None):
+    allowed = {'Refused', 'Closed', 'Hold', 'In process'}
+    if status not in allowed:
+        tg(chat_id, "❌ Statut non valide.")
+        return
+    uid = str(uid)
+    history_record = offers_history.get(uid, {}).get(offer_ref) if offer_ref else None
+    data = (history_record or {}).get('data') if history_record else user_data.get(uid)
+    if not data or not data.get('odsNum'):
+        tg(chat_id, "❌ Offre introuvable dans la session active.")
+        return
+    try:
+        sync_ods_list(data, status)
+        if history_record is not None:
+            history_record['status'] = status
+            save_offers_history()
+        tg(chat_id, f"📊 List.xlsx mis à jour : {status}")
+    except Exception as exc:
+        logger.exception("ODS List status synchronization failed")
+        tg(chat_id, f"❌ Mise à jour de List.xlsx impossible : {exc}")
+
+
 def _do_create_project(chat_id, uid, offer_ref=None):
     uid = str(uid)
     history_record = None
@@ -1695,6 +1911,13 @@ def _do_create_project(chat_id, uid, offer_ref=None):
     try:
         tg(chat_id, "⏳ Création du dossier de projet dans OneDrive...")
         folder_name, web_url = create_project_from_ods(data)
+        accepted_at = datetime.now()
+        list_sync_error = None
+        try:
+            sync_ods_list(data, 'Accept', accepted_at=accepted_at)
+        except Exception as exc:
+            list_sync_error = str(exc)
+            logger.exception("ODS List acceptance synchronization failed")
         data['project_created'] = True
         data['project_creating'] = False
         data['project_web_url'] = web_url
@@ -1704,6 +1927,7 @@ def _do_create_project(chat_id, uid, offer_ref=None):
                 'converted': True,
                 'project_folder': folder_name,
                 'project_web_url': web_url,
+                'status': 'Accept',
             })
             save_offers_history()
             current = user_data.get(uid)
@@ -1728,6 +1952,10 @@ def _do_create_project(chat_id, uid, offer_ref=None):
         )
         if web_url:
             message += f"\n\n🔗 {web_url}"
+        if list_sync_error:
+            message += f"\n\n⚠️ Projet créé, mais List.xlsx non mis à jour : {list_sync_error}"
+        else:
+            message += "\n📊 List.xlsx mis à jour : Accept"
         tg(
             chat_id,
             message,
@@ -1844,6 +2072,11 @@ def handle_update(data):
                 executor.submit(do_send_email, chat_id, uid)
             elif cdata == 'project_create':
                 executor.submit(do_create_project, chat_id, uid)
+            elif cdata.startswith('ods_status:'):
+                executor.submit(do_update_ods_status, chat_id, uid, cdata.split(':', 1)[1])
+            elif cdata.startswith('offer_status:'):
+                _, status, ref = cdata.split(':', 2)
+                executor.submit(do_update_ods_status, chat_id, uid, status, ref)
             elif cdata == 'invoice_start':
                 show_invoice_options(chat_id, uid)
             elif cdata.startswith('invoice_pct:'):
