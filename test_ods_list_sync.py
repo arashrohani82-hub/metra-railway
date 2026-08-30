@@ -1,9 +1,11 @@
 import os
+import tempfile
 from datetime import datetime
 
 import openpyxl
 
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="metra-ods-list-test-"))
 
 import app
 
