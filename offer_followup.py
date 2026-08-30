@@ -26,12 +26,12 @@ def followup_stage(sent_at, today=None):
     if not sent:
         return {"days": 0, "stage": 0, "label": "Date inconnue", "urgent": False}
     days = max(0, ((today or date.today()) - sent).days)
-    if days >= 14:
-        return {"days": days, "stage": 3, "label": "Relance urgente (+14 j)", "urgent": True}
-    if days >= 7:
-        return {"days": days, "stage": 2, "label": "Deuxième relance (+7 j)", "urgent": False}
-    if days >= 3:
-        return {"days": days, "stage": 1, "label": "Première relance (+3 j)", "urgent": False}
+    if days >= 90:
+        return {"days": days, "stage": 3, "label": "Troisième relance mensuelle (+90 j)", "urgent": True}
+    if days >= 60:
+        return {"days": days, "stage": 2, "label": "Deuxième relance mensuelle (+60 j)", "urgent": False}
+    if days >= 30:
+        return {"days": days, "stage": 1, "label": "Première relance mensuelle (+30 j)", "urgent": False}
     return {"days": days, "stage": 0, "label": "Pas encore à relancer", "urgent": False}
 
 
@@ -67,7 +67,7 @@ def mark_followed(state=None, today=None):
     current = dict(state or {})
     current["followup_count"] = int(current.get("followup_count") or 0) + 1
     current["last_followup_at"] = today.isoformat()
-    current["next_followup_on"] = (today + timedelta(days=3)).isoformat()
+    current["next_followup_on"] = (today + timedelta(days=30)).isoformat()
     return current
 
 
@@ -113,4 +113,3 @@ class FollowupStore:
             payload["scheduler"][key] = value
             self.save(payload)
             return value
-
