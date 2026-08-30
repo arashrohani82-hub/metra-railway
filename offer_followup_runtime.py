@@ -2,7 +2,6 @@ import io
 import logging
 import os
 import re
-import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -10,7 +9,7 @@ import openpyxl
 import requests
 
 import menu_guard_runtime as guarded
-from offer_followup import FollowupStore, followup_stage, is_due, is_open_offer, normalized_status
+from offer_followup import FollowupStore, followup_stage, is_open_offer, normalized_status, parse_date
 
 
 app = guarded.app
@@ -19,8 +18,6 @@ logger = logging.getLogger(__name__)
 
 STORE = FollowupStore(os.path.join(legacy.DATA_DIR, "offer_followups.json"))
 TIMEZONE_NAME = os.environ.get("OFFER_FOLLOWUP_TIMEZONE", "America/Toronto")
-FOLLOWUP_HOUR = int(os.environ.get("OFFER_FOLLOWUP_HOUR", "9"))
-SCHEDULER_ENABLED = os.environ.get("OFFER_FOLLOWUP_SCHEDULER_ENABLED", "1") != "0"
 _base_main_menu = guarded.final_main_menu
 
 
@@ -151,36 +148,65 @@ def _save_session(uid, session):
     legacy.save_user_data()
 
 
-def show_open_offers(chat_id, uid, due_only=False, intro=""):
+def _month_key(value):
+    parsed = parse_date(value)
+    return parsed.strftime("%Y-%m") if parsed else "unknown"
+
+
+def show_offer_months(chat_id, uid):
     try:
         offers = load_open_offers()
     except Exception as exc:
         logger.exception("Open-offer follow-up list failed")
         legacy.tg(chat_id, f"❌ Lecture de List.xlsx impossible : {exc}")
         return
-    states = STORE.load().get("offers", {})
-    if due_only:
-        offers = [offer for offer in offers if is_due(offer, states.get(offer["reference"]), local_now().date())]
+    months = {}
+    for offer in offers:
+        months.setdefault(_month_key(offer.get("date")), []).append(offer)
     session = _session(uid)
+    session["offer_followup_months"] = months
+    session.pop("offer_followup_month", None)
+    session.pop("offer_followup_selected", None)
+    _save_session(uid, session)
+    rows = []
+    month_names = {
+        1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril",
+        5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août",
+        9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre",
+    }
+    for key in sorted(months, reverse=True):
+        if key == "unknown":
+            label = "Date inconnue"
+        else:
+            year, month = key.split("-")
+            label = f"{month_names.get(int(month), month)} {year}"
+        rows.append([{"text": f"📅 {label} — {len(months[key])} offre(s)", "callback_data": f"of_month:{key}"}])
+    if not rows:
+        legacy.tg(chat_id, "✅ Aucune offre ouverte dans List.xlsx.", reply_markup=followup_main_menu())
+        return
+    legacy.tg(chat_id, "📬 Suivi des offres ouvertes\n\nChoisissez le mois :", rows)
+
+
+def show_open_offers(chat_id, uid, month_key):
+    session = _session(uid)
+    offers = (session.get("offer_followup_months") or {}).get(month_key)
+    if offers is None:
+        show_offer_months(chat_id, uid)
+        return
     choices = {}
     rows = []
     for index, offer in enumerate(offers[:40], start=1):
         choices[str(index)] = offer
         stage = followup_stage(offer["date"], local_now().date())
-        warning = "🔴 " if stage["urgent"] else "🟠 " if stage["stage"] >= 2 else "🟡 " if stage["stage"] == 1 else "⚪ "
+        warning = "🔴 " if stage["days"] >= 60 else "🟠 " if stage["days"] >= 30 else "⚪ "
         label = f"{warning}{stage['days']}j · {offer['reference']} · {offer['contact'] or 'Client'}"
         rows.append([{"text": label[:62], "callback_data": f"of_pick:{index}"}])
     session["offer_followup_choices"] = choices
+    session["offer_followup_month"] = month_key
     session.pop("offer_followup_selected", None)
     _save_session(uid, session)
-    if not rows:
-        message = "✅ Aucune relance due aujourd’hui." if due_only else "✅ Aucune offre ouverte dans List.xlsx."
-        legacy.tg(chat_id, message, reply_markup=followup_main_menu())
-        return
-    title = "📬 Relances dues" if due_only else "📬 Suivi des offres ouvertes"
-    if intro:
-        title = intro + "\n\n" + title
-    legacy.tg(chat_id, f"{title}\n\n{len(offers)} offre(s). Choisissez une offre :", rows)
+    rows.append([{"text": "⬅️ Choisir un autre mois", "callback_data": "of_months"}])
+    legacy.tg(chat_id, f"📬 Offres du mois {month_key}\n\n{len(offers)} offre(s). Choisissez une offre :", rows)
 
 
 def _selected(uid):
@@ -193,7 +219,10 @@ def _offer_text(offer, state):
     sent = offer.get("date")
     sent_text = sent.strftime("%Y-%m-%d") if hasattr(sent, "strftime") else str(sent or "—")[:10]
     last = str(state.get("last_followup_at") or "Jamais")
-    next_on = str(state.get("next_followup_on") or "Dès maintenant" if stage["stage"] else "À partir de J+3")
+    since_last = "—"
+    last_date = parse_date(state.get("last_followup_at"))
+    if last_date:
+        since_last = f"{(local_now().date() - last_date).days} jour(s)"
     return (
         f"📬 {offer['reference']}\n\n"
         f"Client : {offer.get('contact') or '—'}\n"
@@ -201,10 +230,10 @@ def _offer_text(offer, state):
         f"Montant : {offer.get('price', 0):,.0f} $\n"
         f"Envoyée : {sent_text} ({stage['days']} jours)\n"
         f"Statut : {offer.get('status')}\n"
-        f"Étape : {stage['label']}\n"
+        f"Âge de l’offre : {stage['days']} jour(s)\n"
         f"Relances enregistrées : {state.get('followup_count', 0)}\n"
         f"Dernière relance : {last}\n"
-        f"Prochaine relance interne : {next_on}"
+        f"Depuis la dernière relance : {since_last}"
     )
 
 
@@ -225,7 +254,7 @@ def show_offer(chat_id, uid):
             {"text": "🔒 Closed", "callback_data": "of_status:Closed"},
         ],
         [{"text": "📁 Acceptée → projet", "callback_data": "of_convert"}],
-        [{"text": "⬅️ Toutes les offres", "callback_data": "of_back"}],
+        [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
     legacy.tg(chat_id, _offer_text(offer, state), buttons)
 
@@ -236,22 +265,6 @@ def _history_reference(uid, reference):
         if reference.upper() in str(ref).upper() or reference.upper() in str(data.get("odsNum") or "").upper():
             return ref
     return ""
-
-
-def _scheduler_loop():
-    threading.Event().wait(30)
-    while True:
-        try:
-            now = local_now()
-            today = now.date().isoformat()
-            if now.hour == FOLLOWUP_HOUR:
-                if now.day == 1 and STORE.scheduler_value("last_monthly") != today:
-                    for chat_id in sorted(legacy.ALLOWED_USERS):
-                        show_open_offers(chat_id, str(chat_id), intro="📅 Revue mensuelle")
-                    STORE.scheduler_value("last_monthly", today)
-        except Exception:
-            logger.exception("Offer follow-up scheduler failed")
-        threading.Event().wait(900)
 
 
 _previous_handle_update = legacy.handle_update
@@ -266,7 +279,7 @@ def handle_update_offer_followup(data):
         if actor_id not in legacy.ALLOWED_USERS:
             legacy.tg(chat_id, "⛔ Ce bot est privé.")
             return
-        legacy.executor.submit(show_open_offers, chat_id, str(actor_id))
+        legacy.executor.submit(show_offer_months, chat_id, str(actor_id))
         return
     cdata = str(callback.get("data") or "")
     if cdata.startswith("of_"):
@@ -275,7 +288,12 @@ def handle_update_offer_followup(data):
             return
         _ack(callback)
         uid = str(actor_id)
-        if cdata.startswith("of_pick:"):
+        if cdata.startswith("of_month:"):
+            month_key = cdata.split(":", 1)[1]
+            show_open_offers(chat_id, uid, month_key)
+        elif cdata == "of_months":
+            legacy.executor.submit(show_offer_months, chat_id, uid)
+        elif cdata.startswith("of_pick:"):
             choice = cdata.split(":", 1)[1]
             session = _session(uid)
             offer = (session.get("offer_followup_choices") or {}).get(choice)
@@ -291,7 +309,7 @@ def handle_update_offer_followup(data):
                 legacy.tg(chat_id, "❌ Offre introuvable.")
                 return
             STORE.mark_followed(offer["reference"], local_now().date())
-            legacy.tg(chat_id, "✅ Relance enregistrée. Prochain rappel interne dans 30 jours.")
+            legacy.tg(chat_id, "✅ Relance enregistrée. Vous choisissez vous-même la prochaine action.")
             show_offer(chat_id, uid)
         elif cdata.startswith("of_status:"):
             offer = _selected(uid)
@@ -317,13 +335,11 @@ def handle_update_offer_followup(data):
                 return
             legacy.show_offer_conversion_confirmation(chat_id, uid, ref)
         elif cdata == "of_back":
-            legacy.executor.submit(show_open_offers, chat_id, uid)
+            month_key = str(_session(uid).get("offer_followup_month") or "")
+            show_open_offers(chat_id, uid, month_key)
         return
     return _previous_handle_update(data)
 
 
 legacy.handle_update = handle_update_offer_followup
 logger.info("OPEN OFFER FOLLOW-UP RUNTIME ACTIVE")
-
-if SCHEDULER_ENABLED and legacy.ALLOWED_USERS:
-    threading.Thread(target=_scheduler_loop, name="offer-followup", daemon=True).start()
