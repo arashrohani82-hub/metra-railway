@@ -1,7 +1,7 @@
 import tempfile
 from datetime import date
 
-from offer_followup import FollowupStore, followup_stage, is_due, mark_followed
+from offer_followup import FollowupStore, followup_stage, mark_followed
 
 
 def test_followup_stages_are_monthly():
@@ -12,13 +12,12 @@ def test_followup_stages_are_monthly():
     assert followup_stage("2026-06-01", today)["stage"] == 3
 
 
-def test_mark_followed_delays_next_internal_reminder_thirty_days():
+def test_mark_followed_only_records_the_manual_action():
     today = date(2026, 8, 30)
     state = mark_followed({}, today)
-    offer = {"status": "In process", "date": "2026-08-01"}
-    assert state["next_followup_on"] == "2026-09-29"
-    assert not is_due(offer, state, date(2026, 9, 28))
-    assert is_due(offer, state, date(2026, 9, 29))
+    assert state["last_followup_at"] == "2026-08-30"
+    assert state["followup_count"] == 1
+    assert "next_followup_on" not in state
 
 
 def test_followup_store_persists_count():
