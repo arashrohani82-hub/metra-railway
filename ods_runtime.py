@@ -178,6 +178,63 @@ def recover_project_metadata_from_onedrive(folder_name):
         return {}
 
 
+INVOICE_CLIENT_FIELDS = (
+    ("name", "nom complet du client"),
+    ("addr", "adresse de facturation complète"),
+    ("phone", "numéro de téléphone"),
+    ("email", "adresse courriel"),
+)
+
+
+def _missing_invoice_client_field(data):
+    for field, label in INVOICE_CLIENT_FIELDS:
+        value = str(data.get(field) or "").strip()
+        if not value:
+            return field, label
+        if field == "email" and not legacy.valid_client_email(value):
+            return field, label
+    return None, None
+
+
+def _ask_missing_invoice_client_field(chat_id, uid, data):
+    field, label = _missing_invoice_client_field(data)
+    if not field:
+        data.pop("waiting_invoice_client_field", None)
+        return False
+    data["waiting_invoice_client_field"] = field
+    legacy.user_data[str(uid)] = data
+    legacy.save_user_data()
+    examples = {
+        "name": "Exemple : David Fiset",
+        "addr": "Exemple : 123 rue Exemple, Montréal (Québec) H1H 1H1",
+        "phone": "Exemple : (514) 555-1234",
+        "email": "Exemple : client@entreprise.ca",
+    }
+    legacy.tg(
+        chat_id,
+        "⚠️ Information manquante pour la facture.\n\n"
+        f"Veuillez entrer : {label}\n{examples[field]}",
+    )
+    return True
+
+
+def _continue_invoice_after_client_details(chat_id, uid, data):
+    if _ask_missing_invoice_client_field(chat_id, uid, data):
+        return
+    if float(data.get("price") or 0) <= 0:
+        data["waiting_invoice_contract_amount"] = True
+        legacy.user_data[str(uid)] = data
+        legacy.save_user_data()
+        legacy.tg(
+            chat_id,
+            "✅ Coordonnées client complètes.\n\n"
+            "💰 Quel est le montant total du contrat avant taxes?\n"
+            "Exemple : 5500",
+        )
+        return
+    base.show_invoice_options_multi(chat_id, str(uid))
+
+
 def onedrive_projects():
     config = legacy.microsoft_email_config()
     token = legacy.graph_access_token()
@@ -277,13 +334,14 @@ def select_onedrive_project(chat_id, uid, choice_id):
     legacy.user_data[uid] = data
     legacy.save_user_data()
 
+    if _ask_missing_invoice_client_field(chat_id, uid, data):
+        return
+
     if float(data.get("price") or 0) <= 0:
         data["waiting_invoice_contract_amount"] = True
         legacy.user_data[uid] = data
         legacy.save_user_data()
-        client_note = ""
-        if data.get("name"):
-            client_note = f"\nClient détecté : {data['name']}"
+        client_note = f"\nClient détecté : {data['name']}"
         legacy.tg(
             chat_id,
             f"✅ Projet sélectionné : {folder}{client_note}\n\n"
@@ -318,6 +376,25 @@ def handle_update_runtime(data):
 
             uid = str(actor_id) if actor_id is not None else ""
             session = legacy.user_data.get(uid, {})
+            if text and session.get("waiting_invoice_client_field"):
+                field = session.get("waiting_invoice_client_field")
+                value = text.strip()
+                if field == "email":
+                    value = legacy.valid_client_email(value)
+                    if not value:
+                        legacy.tg(chat_id, "❌ Adresse courriel invalide. Veuillez la saisir de nouveau.")
+                        return
+                if not value:
+                    legacy.tg(chat_id, "❌ Cette information ne peut pas être vide.")
+                    return
+                session[field] = value
+                if field == "addr":
+                    session["project_address"] = value
+                session.pop("waiting_invoice_client_field", None)
+                legacy.user_data[uid] = session
+                legacy.save_user_data()
+                _continue_invoice_after_client_details(chat_id, uid, session)
+                return
             if text and session.get("waiting_invoice_contract_amount"):
                 try:
                     amount = float(
