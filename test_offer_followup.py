@@ -32,9 +32,13 @@ def test_email_templates_and_recommended_stage():
     subject, body = build_followup_email(offer, 15)
     assert subject == "Suivi – Offre de service ODS26-101-STR"
     assert "Bonjour Julie Dubé" in body
-    assert "dernier suivi" in body
-    assert "fermerons le dossier" in body
+    assert "valide pendant 30 jours" in body
+    assert "fermerons le dossier" not in body
+    _, final_body = build_followup_email(offer, 30)
+    assert "période de validité de 30 jours" in final_body
+    assert "inactive" in final_body
     assert recommended_followup_day(3) == 3
     assert recommended_followup_day(8) == 7
     assert recommended_followup_day(12) == 10
     assert recommended_followup_day(20) == 15
+    assert recommended_followup_day(31) == 30
