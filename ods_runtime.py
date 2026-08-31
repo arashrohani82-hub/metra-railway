@@ -165,7 +165,7 @@ def recover_project_metadata_from_onedrive(folder_name):
             identity = str(ws["B7"].value or "").strip()
             civility = ""
             name = identity
-            match = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", identity, re.I)
+            match = re.match(r"^(M\./Mme|Mme|M\.?)\s+(.*)$", identity, re.I)
             if match:
                 civility = match.group(1)
                 name = match.group(2).strip()
@@ -215,8 +215,8 @@ def recover_project_metadata_from_onedrive(folder_name):
                     email = line.split(":", 1)[1].strip() if ":" in line else ""
                 elif re.match(r"^ODS\d{2}-\d{3}", line, re.I):
                     ods_num = line.split()[0]
-                elif re.match(r"^(M\.|Mme|M\./Mme)\s+", line, re.I):
-                    match = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", line, re.I)
+                elif re.match(r"^(M\./Mme|Mme|M\.?)\s+", line, re.I):
+                    match = re.match(r"^(M\./Mme|Mme|M\.?)\s+(.*)$", line, re.I)
                     if match and not name:
                         civility, name = match.group(1), match.group(2).strip()
             if not email:
