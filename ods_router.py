@@ -157,9 +157,9 @@ def ods_extract():
         return jsonify({"ok": False, "error": "invalid_user"}), 400
 
     image_b64 = base64.b64encode(image).decode("ascii")
-    prompt = """Extract only information visibly present in this client engineering request or email screenshot. Do not invent missing information. Return ONLY JSON:
+    prompt = """Extract only information visibly present in this client engineering request or email screenshot. Read the full header and body. Do not invent missing information. Return ONLY JSON:
 {"client_name":"","client_civility":"M.|Mme|M./Mme","phone":"","email":"","address":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
-Rules: From/sender is the client; To/recipient may be Metra and must not be used as client. Subject may contain project address. Preserve visible address exactly. suggested_price is only a preliminary internal CAD suggestion."""
+Rules: An explicit self-identification in the body overrides a shortened or different From display name. From/sender email is the client email; To/recipient may be Métra Consultation and must not be used as client. Never return an @metrastructure.ca address as the client email. Extract a phone number written anywhere in the body or signature. Subject or body may contain the project address; preserve it exactly. project_description must retain the specific condition and every requested opinion, report, test or deliverable. suggested_price is only a preliminary internal CAD suggestion."""
     try:
         response = ods.client.messages.create(
             model=_model_name(), max_tokens=900,

@@ -3,7 +3,7 @@ import re
 import hmac
 import html
 import copy
-import os, json, io, shutil, base64, logging, threading
+import os, json, io, shutil, base64, logging, threading, time
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
 import anthropic
@@ -28,6 +28,11 @@ executor = ThreadPoolExecutor(max_workers=10)
 project_creation_lock = threading.Lock()
 invoice_creation_lock = threading.Lock()
 ods_list_lock = threading.Lock()
+photo_batch_lock = threading.Lock()
+photo_batches = {}
+
+DISPLAY_BRAND = 'Métra Consultation Inc.'
+DISPLAY_BRAND_SHORT = 'Métra Consultation'
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -271,7 +276,7 @@ def ask_desc_options(chat_id, uid):
         property_type = d.get('property_type', '')
         addr = d.get('addr', '')
         prompt = (
-            "You prepare structural-engineering offers of service for Métra Structure Inc. "
+            f"You prepare structural-engineering offers of service for {DISPLAY_BRAND} "
             "Write in mature, project-specific structural-engineering French. Never invent a test, deliverable, quantity, "
             "investigation extent, code review, design task, or professional commitment that the "
             "client did not request or that the context does not justify. Avoid promotional wording. "
@@ -599,6 +604,13 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
 def draw_header_footer(canvas, doc):
     canvas.saveState()
     canvas.drawImage(LOGOS['metra'], 1.8*cm, H-3.0*cm, width=2.8*cm, height=1.8*cm, preserveAspectRatio=True, mask='auto')
+    # Keep the established Métra artwork while replacing its legacy subtitle.
+    canvas.setFillColor(colors.white)
+    canvas.rect(1.8*cm, H-3.0*cm, 2.8*cm, 0.78*cm, stroke=0, fill=1)
+    canvas.setFillColor(colors.HexColor('#14213D'))
+    canvas.setFont('Helvetica-Bold', 4.8)
+    canvas.drawCentredString(3.2*cm, H-2.72*cm, 'CONSULTATION INC.')
+    canvas.setFillColor(BLACK)
     canvas.setFont('Helvetica-Bold', 10)
     canvas.drawCentredString(W/2, H-1.7*cm, 'Ingénierie des structures / Structural Engineering')
     canvas.setFont('Helvetica', 9)
@@ -718,17 +730,17 @@ def generate_pdf(data):
     story.append(Paragraph('Courriel : ' + contact['email'], sn))
     story.append(Spacer(1, 3))
     story.append(Paragraph(f'<b>{data["odsNum"]}</b>', sn))
-    story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | MÉTRA STRUCTURE INC.', sc))
+    story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | MÉTRA CONSULTATION INC.', sc))
     story.append(Paragraph(
-        "L'équipe de Métra Structure Inc. vous remercie pour votre confiance à l'égard de notre proposition de services. "
+        f"L'équipe de {DISPLAY_BRAND} vous remercie pour votre confiance à l'égard de notre proposition de services. "
         "Nous vous informons que la présente offre, ainsi que les conditions qui l'accompagnent, forment un accord unique et indissociable. "
         "Toute acceptation de cette offre vaut acceptation complète et sans réserve de l'ensemble des modalités qui y sont énoncées. "
         "Aux fins des présentes, le terme « Client » réfère à la personne, physique ou morale, qui confie le mandat et qui demeure responsable du paiement des honoraires afférents.", sj))
 
     for heading, text in [
-        ("1. Description des services","Métra Structure Inc. offre ses services d'ingénierie-conseil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat. Les services sont fournis selon une obligation de moyens et non de résultat. La responsabilité de Métra Structure Inc. ne pourra excéder, sous réserve des dispositions légales applicables, le montant des honoraires payés pour le présent mandat."),
+        ("1. Description des services",f"{DISPLAY_BRAND} offre ses services d'ingénierie-conseil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat. Les services sont fournis selon une obligation de moyens et non de résultat. La responsabilité de {DISPLAY_BRAND} ne pourra excéder, sous réserve des dispositions légales applicables, le montant des honoraires payés pour le présent mandat."),
         ("2. Versement initial","À défaut d'une entente écrite contraire, un acompte représentant 25 % du montant total de l'offre de services est requis au moment de la signature."),
-        ("3. Honoraires et modalités de paiement","Les honoraires et frais remboursables sont facturés selon la progression des travaux et sont exigibles dès réception de la facture. Tout montant non réglé dans un délai de trente (30) jours sera assujetti à des intérêts de 1,5 % par mois (19,56 % par année). En cas de non-paiement, Métra Structure Inc. pourra suspendre la prestation des services. Les taxes applicables s'ajoutent aux honoraires."),
+        ("3. Honoraires et modalités de paiement",f"Les honoraires et frais remboursables sont facturés selon la progression des travaux et sont exigibles dès réception de la facture. Tout montant non réglé dans un délai de trente (30) jours sera assujetti à des intérêts de 1,5 % par mois (19,56 % par année). En cas de non-paiement, {DISPLAY_BRAND} pourra suspendre la prestation des services. Les taxes applicables s'ajoutent aux honoraires."),
         ("4. Gestion des retards et arrêt du projet","En cas de suspension ou d'annulation du projet, le client est responsable du paiement des coûts engagés et des prestations réalisées jusqu'à la date de notification écrite."),
         ("5. Cadre contractuel","Ce document tient lieu d'entente complète entre les parties. Aucun changement ne sera valide à moins d'être formulé par écrit."),
     ]:
@@ -795,7 +807,7 @@ def generate_pdf(data):
     sig = Table([
         [Paragraph('<b>Arash Rohani</b> , ing., P.Eng.',sn2),Paragraph('<b>Nom du client:</b>',sn2)],
         [Paragraph('Président-Ingénieur en structure',sn2),''],
-        [Paragraph('Métra Structure Inc.',sn2),Paragraph('<b>Date:</b>',sn2)],
+        [Paragraph(DISPLAY_BRAND,sn2),Paragraph('<b>Date:</b>',sn2)],
     ], colWidths=[9*cm,8.5*cm])
     sig.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
     story.append(sig)
@@ -832,100 +844,151 @@ def generate_excel(data):
     buf.seek(0)
     return buf
 
-def do_extract(chat_id, uid, file_id):
-    uid = str(uid)  # ensure string key
-    try:
-        r = req.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}', timeout=10)
-        fpath = r.json()['result']['file_path']
-        img_r = req.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}', timeout=15)
-        img_b64 = base64.b64encode(img_r.content).decode()
+PHOTO_BATCH_DELAY_SECONDS = 2.0
+MAX_EXTRACTION_IMAGES = 5
 
-        prompt = """Extract only information visibly present in this client document. Do not infer or invent missing information. Return ONLY JSON:
-{"client_name":"","client_civility":"M.|Mme|M./Mme","phone":"","email":"","address":"","soumission_ref":"","project_description":"","property_type":"","suggested_service":"","suggested_price":0}
 
-IMPORTANT FOR EMAIL SCREENSHOTS:
-1. Read the complete email header before the message body.
-2. The person and email on the From/sender line are the client. Use them for client_name and email.
-3. The account on the To/recipient line is Métra Structure, not the client. Never return an @metrastructure.ca address as the client email.
-4. Do not use a Cc contact when a From contact is visible.
-5. The email Subject is a primary source for the project address. If it visibly contains a street number, street, city, province or postal code, copy the complete visible address into address.
-6. Preserve accents, street number, municipality, province and postal code exactly as visible.
+def _photo_extraction_prompt(image_count):
+    return f"""Analyze ALL {image_count} attached image(s) together as one client request.
+Images may be consecutive email screenshots and/or photos of visible building conditions.
+Extract only information visibly present. Do not infer a diagnosis or invent missing facts.
+Return ONLY JSON:
+{{"client_name":"","client_civility":"M.|Mme|M./Mme","phone":"","email":"","address":"","soumission_ref":"","project_description":"","image_observations":[],"property_type":"","suggested_service":"","suggested_price":0}}
 
-For client_civility: use "M." for a confidently male first name, "Mme" for a confidently female first name, and "M./Mme" when the name is ambiguous or confidence is low. Never guess weakly.
-suggested_service from: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale"
+CONTACT RULES:
+1. Read the complete email header AND the complete message body across every screenshot.
+2. From/sender email is the client's email. The To/recipient account belongs to Métra Consultation; never return an @metrastructure.ca address as the client email.
+3. An explicit self-identification in the body, such as "my name is" or "je m'appelle", overrides a shortened/different display name in the From line.
+4. Extract every visible client phone number from the message body or signature. Do not leave phone blank when a number is visibly written.
+5. Use the full project address stated in the body or subject. Preserve street number, street, city and postal code exactly as visible.
+6. Do not use a Cc contact when a From contact is visible.
+
+PROJECT RULES:
+1. project_description must be a concise but complete 2–4 sentence summary of the client's actual request, existing condition, requested opinion/report/design, and any explicitly requested tests or deliverables.
+2. Review every attached building photo. Put only directly visible conditions in image_observations (for example crack location or affected element); do not claim a cause, severity, movement, structural safety, or required repair from a photo alone.
+3. Incorporate relevant image_observations into project_description so the technical scope is based on both the written request and the photos.
+4. Never replace a specific request with generic engineering language.
+
+For client_civility: use "M." for a confidently male first name, "Mme" for a confidently female first name, and "M./Mme" when confidence is low.
+suggested_service must be one of: "Analyse structurale générale","Inspection et rapport structural","Avis d'expert — stabilisation et renforcement","Enlèvement de mur porteur","Inspection des fondations","Évaluation des fissures et désordres structuraux","Mur de soutènement","Conception structurale complète","Analyse structurale — sous-sol et ajout au-dessus du garage","Réaménagement intérieur avec modification structurale".
 suggested_price is only a preliminary internal suggestion in CAD. ONLY JSON."""
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6", max_tokens=1200,
-            temperature=0,
-            messages=[{"role":"user","content":[
-                {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":img_b64}},
-                {"type":"text","text":prompt}
-            ]}]
-        )
-        text = ''.join(b.text for b in response.content if hasattr(b,'text'))
-        info = json.loads(text.replace('```json','').replace('```','').strip())
 
-        # Email headers are small and visually dense. If the general pass misses a
-        # critical contact field (or selects Métra's recipient address), run one
-        # focused pass on the same image and merge only visibly extracted values.
-        extracted_email = str(info.get('email') or '').strip()
-        needs_header_retry = (
-            not str(info.get('address') or '').strip()
-            or not extracted_email
-            or extracted_email.lower().endswith('@metrastructure.ca')
-        )
-        if needs_header_retry:
-            header_prompt = """Re-read ONLY the visible email header in this image.
+def _contact_verification_prompt():
+    return """Re-read all attached images only to verify client contact facts.
 Return ONLY JSON:
-{"client_name":"","client_civility":"M.|Mme|M./Mme","email":"","address":""}
+{"client_name":"","client_civility":"M.|Mme|M./Mme","phone":"","email":"","address":""}
 Rules:
-- From/sender = client. Extract that sender name and sender email.
-- To/recipient = Métra Structure. Never use an @metrastructure.ca address.
-- Cc is not the client when From is visible.
-- Read the entire Subject. If it contains a project address, copy the full visible
-  street number, street, city, province and postal code exactly.
+- An explicit self-identification in the message body (for example "My name is Nevin El-Tahry") overrides a different or shortened From display name.
+- From/sender email is the client email. Never use To, Cc, or an @metrastructure.ca address.
+- Capture a phone number written anywhere in the body or signature.
+- Capture the complete visible project address from the body or subject.
 - Do not invent missing text. ONLY JSON."""
-            header_response = client.messages.create(
-                model="claude-sonnet-4-6", max_tokens=350,
-                temperature=0,
-                messages=[{"role":"user","content":[
-                    {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":img_b64}},
-                    {"type":"text","text":header_prompt}
-                ]}]
-            )
-            header_text = ''.join(
-                b.text for b in header_response.content if hasattr(b, 'text')
-            )
-            header_info = json.loads(
-                header_text.replace('```json', '').replace('```', '').strip()
-            )
-            if not str(info.get('client_name') or '').strip():
-                info['client_name'] = header_info.get('client_name', '')
-            if normalize_civility(info.get('client_civility')) == 'M./Mme':
-                info['client_civility'] = header_info.get(
-                    'client_civility', info.get('client_civility', 'M./Mme')
-                )
-            header_email = str(header_info.get('email') or '').strip()
-            if header_email and not header_email.lower().endswith('@metrastructure.ca'):
-                info['email'] = header_email
-            if not str(info.get('address') or '').strip():
-                info['address'] = header_info.get('address', '')
+
+
+def _model_json(response):
+    text = ''.join(b.text for b in response.content if hasattr(b, 'text'))
+    return json.loads(text.replace('```json', '').replace('```', '').strip())
+
+
+def _download_telegram_images(file_ids):
+    images = []
+    for file_id in file_ids[:MAX_EXTRACTION_IMAGES]:
+        result = req.get(
+            f'https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}',
+            timeout=10,
+        ).json()
+        file_path = result['result']['file_path']
+        response = req.get(
+            f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}',
+            timeout=20,
+        )
+        response.raise_for_status()
+        images.append(base64.b64encode(response.content).decode())
+    return images
+
+
+def _vision_content(images, prompt):
+    content = []
+    for index, image_b64 in enumerate(images, 1):
+        content.extend([
+            {"type": "text", "text": f"Image {index} of {len(images)}:"},
+            {"type": "image", "source": {
+                "type": "base64", "media_type": "image/jpeg", "data": image_b64,
+            }},
+        ])
+    content.append({"type": "text", "text": prompt})
+    return content
+
+
+def _merge_verified_contacts(info, verified):
+    verified_name = str(verified.get('client_name') or '').strip()
+    if verified_name:
+        info['client_name'] = verified_name
+    if normalize_civility(info.get('client_civility')) == 'M./Mme':
+        info['client_civility'] = verified.get(
+            'client_civility', info.get('client_civility', 'M./Mme')
+        )
+    for key in ('phone', 'address'):
+        value = str(verified.get(key) or '').strip()
+        if value:
+            info[key] = value
+    verified_email = str(verified.get('email') or '').strip()
+    if verified_email and not verified_email.lower().endswith('@metrastructure.ca'):
+        info['email'] = verified_email
+    return info
+
+
+def do_extract_many(chat_id, uid, file_ids):
+    uid = str(uid)
+    try:
+        images = _download_telegram_images(file_ids)
+        if not images:
+            raise RuntimeError('aucune image lisible')
+        model_content = _vision_content(
+            images, _photo_extraction_prompt(len(images))
+        )
+        response = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=1600, temperature=0,
+            messages=[{"role": "user", "content": model_content}],
+        )
+        info = _model_json(response)
+
+        # A second, narrow pass prevents dense email screenshots from losing the
+        # body-stated full name or phone number to a shorter From display name.
+        contact_response = client.messages.create(
+            model="claude-sonnet-4-6", max_tokens=450, temperature=0,
+            messages=[{"role": "user", "content": _vision_content(
+                images, _contact_verification_prompt()
+            )}],
+        )
+        info = _merge_verified_contacts(info, _model_json(contact_response))
+
+        observations = [
+            str(item).strip()
+            for item in (info.get('image_observations') or [])
+            if str(item).strip()
+        ]
+        description = str(info.get('project_description') or '').strip()
+        if observations and not any(obs.casefold() in description.casefold() for obs in observations):
+            description = (description + ' Observations visuelles : ' + '; '.join(observations)).strip()
 
         yr = datetime.now().strftime('%y')
-        ods_num = f"ODS{yr}-{random.randint(100,999)}"
-        price = info.get('suggested_price') or PRICES.get(info.get('suggested_service',''), 3200)
-
+        service = str(info.get('suggested_service') or '').strip()
+        price = info.get('suggested_price') or PRICES.get(service, 3200)
         user_data[uid] = {
-            'name': normalize_client_name(info.get('client_name','')),
+            'name': normalize_client_name(info.get('client_name', '')),
             'civility': normalize_civility(info.get('client_civility')),
-            'phone': info.get('phone',''),
-            'email': info.get('email',''),
-            'addr': info.get('address',''),
-            'desc': info.get('project_description',''),
-            'service': info.get('suggested_service',''),
+            'phone': str(info.get('phone') or '').strip(),
+            'email': str(info.get('email') or '').strip(),
+            'addr': str(info.get('address') or '').strip(),
+            'desc': description,
+            'image_observations': observations,
+            'source_image_count': len(images),
+            'property_type': str(info.get('property_type') or '').strip(),
+            'service': service,
             'price': price,
-            'odsNum': ods_num,
+            'odsNum': f"ODS{yr}-{random.randint(100,999)}",
             'date': datetime.now().strftime('%Y-%m-%d'),
         }
         save_user_data()
@@ -934,7 +997,47 @@ Rules:
         import traceback
         logger.error(f"Extract error: {e}")
         logger.error(traceback.format_exc())
+        current = user_data.get(uid, {})
+        current.pop('extracting', None)
+        user_data[uid] = current
+        save_user_data()
         tg(chat_id, f"❌ Erreur: {str(e)}")
+
+
+def do_extract(chat_id, uid, file_id):
+    """Backward-compatible single-image extraction entry point."""
+    return do_extract_many(chat_id, uid, [file_id])
+
+
+def _finish_photo_batch(chat_id, uid, generation):
+    time.sleep(PHOTO_BATCH_DELAY_SECONDS)
+    with photo_batch_lock:
+        batch = photo_batches.get(uid)
+        if not batch or batch['generation'] != generation:
+            return
+        file_ids = list(batch['file_ids'])[:MAX_EXTRACTION_IMAGES]
+        photo_batches.pop(uid, None)
+    current = user_data.get(uid, {})
+    current['extracting'] = True
+    user_data[uid] = current
+    save_user_data()
+    tg(chat_id, f"🔍 Analyse de {len(file_ids)} image(s) ensemble...")
+    do_extract_many(chat_id, uid, file_ids)
+
+
+def queue_photo_extraction(chat_id, uid, file_id):
+    """Collect consecutive Telegram photos before running one combined analysis."""
+    uid = str(uid)
+    with photo_batch_lock:
+        batch = photo_batches.setdefault(uid, {'file_ids': [], 'generation': 0})
+        if file_id not in batch['file_ids'] and len(batch['file_ids']) < MAX_EXTRACTION_IMAGES:
+            batch['file_ids'].append(file_id)
+        batch['generation'] += 1
+        generation = batch['generation']
+        count = len(batch['file_ids'])
+    if count == 1:
+        tg(chat_id, "📷 Image reçue. Vous pouvez envoyer les autres images maintenant.")
+    executor.submit(_finish_photo_batch, chat_id, uid, generation)
 
 def do_extract_text(chat_id, uid, client_text):
     uid = str(uid)
@@ -943,6 +1046,9 @@ def do_extract_text(chat_id, uid, client_text):
             "Extract only information explicitly present in this client email/text. "
             "Do not infer or invent missing information. Return ONLY JSON with these keys: "
             "client_name, client_civility, phone, email, address, soumission_ref, project_description, property_type, suggested_service, suggested_price. "
+            "Read the full header and body. If the body explicitly identifies the sender by name, that full name overrides a shortened or different From display name. "
+            "Use the From email, never To, Cc, or an @metrastructure.ca address. Extract any phone number written in the body or signature. "
+            "project_description must preserve the specific existing condition, requested opinion/report/design, and any explicitly requested tests or deliverables. "
             "For client_civility, return M. for a confidently male first name, Mme for a confidently female first name, "
             "and M./Mme when the name is ambiguous or confidence is low. Never guess weakly. "
             "For address, extract only the components provided by the client. "
@@ -1037,7 +1143,7 @@ def build_email_preview(data):
         "Cordialement,\n\n"
         "Arash Rohani, ing., P.Eng.\n"
         "Président – Ingénieur en structure\n"
-        "Métra Structure Inc.\n"
+        f"{DISPLAY_BRAND}\n"
         "arash.rohani@metrastructure.ca | (438) 867-4131"
     )
     return recipient, subject, body
@@ -1058,7 +1164,7 @@ def email_body_html(body):
         '<div style="border-left:4px solid #f5a623;padding-left:12px;margin-top:16px">'
         '<strong style="font-size:12pt;color:#102a43">Arash Rohani, ing., P.Eng.</strong><br>'
         'Président – Ingénieur en structure<br>'
-        '<strong>Métra Structure Inc.</strong><br>'
+        f'<strong>{DISPLAY_BRAND}</strong><br>'
         '<a href="mailto:arash.rohani@metrastructure.ca" style="color:#1155cc">'
         'arash.rohani@metrastructure.ca</a> | '
         '<a href="tel:+14388674131" style="color:#1155cc">(438) 867-4131</a><br>'
@@ -1666,7 +1772,7 @@ def invoice_email_html(data, invoice_number, total, due_date):
         f"Échéance : <b>{due_date.isoformat()}</b></p>"
         "<p>N'hésitez pas à nous contacter pour toute question.</p>"
         "<p>Cordialement,<br><b>Service de comptabilité</b><br>"
-        "Métra Structure Inc.<br>"
+        f"{DISPLAY_BRAND}<br>"
         "accounting@metrastructure.ca</p>"
     )
 
@@ -2261,7 +2367,7 @@ def handle_update(data):
                     save_user_data()
                     tg(
                         chat_id,
-                        "👋 Métra Structure — Nouvelle offre\n\n"
+                        f"👋 {DISPLAY_BRAND_SHORT} — Nouvelle offre\n\n"
                         "Envoyez une photo ou collez le texte/courriel du client.",
                         reply_markup=main_menu(),
                     )
@@ -2366,16 +2472,8 @@ def handle_update(data):
                     else:
                         tg(chat_id, "📸 Envoyez une photo ou collez le texte du client.")
             elif msg.get('photo'):
-                # Guard against double processing
-                d = user_data.get(uid, {})
-                if d.get('extracting'):
-                    return
-                d['extracting'] = True
-                user_data[uid] = d
-                save_user_data()
                 file_id = msg['photo'][-1]['file_id']
-                tg(chat_id, "🔍 Extraction en cours...")
-                executor.submit(do_extract, chat_id, uid, file_id)
+                queue_photo_extraction(chat_id, uid, file_id)
     except Exception as e:
         import traceback
         logger.error(f"handle_update error: {e}\n{traceback.format_exc()}")

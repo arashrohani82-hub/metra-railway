@@ -82,7 +82,7 @@ def handle_update_menu_guard(data):
                 return
             legacy.tg(
                 chat_id,
-                "👋 Métra Structure\n\nChoisissez une opération :",
+                "👋 Métra Consultation\n\nChoisissez une opération :",
                 reply_markup=final_main_menu(),
             )
             return

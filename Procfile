@@ -1,1 +1,1 @@
-web: gunicorn ods_router:app --timeout 300 --workers 2 --threads 4
+web: gunicorn ods_router:app --timeout 300 --workers 1 --threads 8

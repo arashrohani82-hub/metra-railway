@@ -1,6 +1,6 @@
 # Métra — Offre de service bot
 
-Private Telegram assistant for creating Métra Structure service proposals from a client photo, email, or pasted text.
+Private Telegram assistant for creating Métra Consultation service proposals from a client photo, email, or pasted text.
 
 ## Required Railway variables
 

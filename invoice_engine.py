@@ -17,6 +17,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from reportlab.graphics.shapes import Drawing, Image as DrawingImage, Rect, String
 
 
 GST_RATE = 0.05
@@ -156,10 +157,17 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
 
     logo = ""
     if logo_path and os.path.exists(logo_path):
-        logo = Image(logo_path, width=4.0 * cm, height=1.65 * cm)
+        logo = Drawing(4.0 * cm, 1.65 * cm)
+        logo.add(DrawingImage(0, 0, 4.0 * cm, 1.65 * cm, logo_path))
+        logo.add(Rect(0, 0, 4.0 * cm, 0.64 * cm, fillColor=colors.white, strokeColor=None))
+        logo.add(String(
+            2.0 * cm, 0.18 * cm, 'CONSULTATION INC.',
+            fontName='Helvetica-Bold', fontSize=5.2,
+            fillColor=colors.HexColor('#14213D'), textAnchor='middle',
+        ))
 
     company = Paragraph(
-        "<b>Métra Structure Inc.</b><br/>"
+        "<b>Métra Consultation Inc.</b><br/>"
         "1280, rue Saint-Jacques, Montréal (Québec) H3C 0G1<br/>"
         '<font color="#1155cc"><u>accounting@metrastructure.ca</u></font><br/>'
         '<font color="#1155cc"><u>www.metrastructure.ca</u></font>',

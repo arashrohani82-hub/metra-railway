@@ -144,7 +144,7 @@ def invoice_email_html_standard(data, invoice_number, total, due_date):
 
       <p>Cordialement,<br>
       <strong>Service de comptabilité</strong><br>
-      Métra Structure Inc.<br>
+      Métra Consultation Inc.<br>
       <a href="mailto:accounting@metrastructure.ca">accounting@metrastructure.ca</a></p>
     </div>
     """
