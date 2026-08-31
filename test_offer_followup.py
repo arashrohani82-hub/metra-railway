@@ -31,7 +31,8 @@ def test_email_templates_and_recommended_stage():
     offer = {"reference": "ODS26-101-STR", "contact": "Julie Dubé"}
     subject, body = build_followup_email(offer, 15)
     assert subject == "Petit suivi concernant votre projet – ODS26-101-STR"
-    assert "Bonjour Julie Dubé" in body
+    assert "Bonjour Julie," in body
+    assert "Bonjour Julie Dubé" not in body
     assert "J’espère que vous allez bien" in body
     assert "Ingénieur en structure et en génie civil" in body
     assert "valide pendant 30 jours" in body
