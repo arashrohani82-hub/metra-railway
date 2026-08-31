@@ -7,6 +7,7 @@ import urllib.parse
 from datetime import datetime
 
 import openpyxl
+from pypdf import PdfReader
 import requests
 
 import fixed_ods_app as base
@@ -99,7 +100,7 @@ def _strip_label(value, labels):
 
 
 def recover_project_metadata_from_onedrive(folder_name):
-    """Recover invoice metadata from an archived project ODS workbook."""
+    """Recover invoice metadata by scanning archived ODS Excel or PDF files."""
     try:
         config = legacy.microsoft_email_config()
         token = legacy.graph_access_token()
@@ -107,67 +108,36 @@ def recover_project_metadata_from_onedrive(folder_name):
         year_match = re.match(r"^P(\d{2})-", str(folder_name or ""), re.I)
         year = f"20{year_match.group(1)}" if year_match else datetime.now().strftime("%Y")
         project_root = f"Metra Structure Inc/Projects/{year}/{folder_name}"
+        encoded_sender = urllib.parse.quote(sender, safe="")
 
         project_items = legacy.list_onedrive_children(token, sender, project_root)
-        correspondence_folders = [
-            str(item.get("name") or "").strip()
-            for item in project_items
-            if item.get("folder") and "correspond" in str(item.get("name") or "").lower()
-        ]
-        correspondence_name = correspondence_folders[0] if correspondence_folders else "Correspondence"
-        correspondence = f"{project_root}/{correspondence_name}"
-        items = legacy.list_onedrive_children(token, sender, correspondence)
-        xlsx_items = [
-            item for item in items
-            if str(item.get("name") or "").lower().endswith((".xlsx", ".xlsm"))
-        ]
-        if not xlsx_items:
-            logger.warning("No archived Excel file found for invoice project %s", folder_name)
+        candidates = []
+        for item in project_items:
+            name = str(item.get("name") or "").strip()
+            if name.lower().endswith((".xlsx", ".xlsm", ".pdf")):
+                candidates.append((f"{project_root}/{name}", item))
+            if item.get("folder"):
+                subfolder = f"{project_root}/{name}"
+                try:
+                    for child in legacy.list_onedrive_children(token, sender, subfolder):
+                        child_name = str(child.get("name") or "").strip()
+                        if child_name.lower().endswith((".xlsx", ".xlsm", ".pdf")):
+                            candidates.append((f"{subfolder}/{child_name}", child))
+                except Exception as exc:
+                    logger.debug("Project subfolder scan skipped %s: %s", subfolder, exc)
+
+        if not candidates:
+            logger.warning("No Excel or PDF source found for invoice project %s", folder_name)
             return {}
-        xlsx_items.sort(
-            key=lambda item: (
-                str(item.get("name") or "").upper().startswith("ODS"),
-                str(item.get("lastModifiedDateTime") or ""),
-                str(item.get("name") or ""),
+
+        candidates.sort(
+            key=lambda pair: (
+                str(pair[1].get("name") or "").upper().startswith("ODS"),
+                str(pair[1].get("name") or "").lower().endswith((".xlsx", ".xlsm")),
+                str(pair[1].get("lastModifiedDateTime") or ""),
             ),
             reverse=True,
         )
-        item = xlsx_items[0]
-        filename = str(item.get("name") or "")
-        relative_path = f"{correspondence}/{filename}"
-        encoded_path = urllib.parse.quote(relative_path, safe="/")
-        encoded_sender = urllib.parse.quote(sender, safe="")
-        response = requests.get(
-            f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/"
-            f"root:/{encoded_path}:/content",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        if response.status_code != 200:
-            logger.warning("ODS metadata download failed: %s %s", response.status_code, filename)
-            return {}
-
-        wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
-        ws = wb["ODS"] if "ODS" in wb.sheetnames else wb[wb.sheetnames[0]]
-        identity = str(ws["B7"].value or "").strip()
-        civility = ""
-        name = identity
-        match = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", identity, re.I)
-        if match:
-            civility = match.group(1)
-            name = match.group(2).strip()
-        address = _strip_label(ws["B8"].value, ["Adresse :", "Adresse:"])
-        phone = _strip_label(
-            ws["B9"].value,
-            ["Cell. :", "Cell.:", "Téléphone :", "Téléphone:"],
-        )
-        email = _strip_label(
-            ws["B10"].value,
-            ["Courriel :", "Courriel:", "Email :", "Email:"],
-        )
-        description = str(ws["B47"].value or "").strip()
-        ods_num = str(ws["B12"].value or filename.rsplit(".", 1)[0]).strip()
-        price = ws["E47"].value
 
         def clean_placeholder(value):
             text = str(value or "").strip()
@@ -177,36 +147,121 @@ def recover_project_metadata_from_onedrive(folder_name):
             }
             return "" if text.lower() in placeholders else text
 
-        result = {
-            "name": clean_placeholder(name),
-            "civility": clean_placeholder(civility),
-            "addr": clean_placeholder(address),
-            "project_address": clean_placeholder(address),
-            "phone": clean_placeholder(phone),
-            "email": clean_placeholder(email),
-            "desc": clean_placeholder(description),
-            "service": clean_placeholder(description),
-            "odsNum": clean_placeholder(ods_num),
-            "price": float(price or 0),
-        }
-        if description:
-            result["service_lines"] = [
-                line.strip().lstrip("•").strip().rstrip(";")
-                for line in description.splitlines()
-                if line.strip()
-            ][:5]
+        def download(relative_path):
+            encoded_path = urllib.parse.quote(relative_path, safe="/")
+            response = requests.get(
+                f"https://graph.microsoft.com/v1.0/users/{encoded_sender}/drive/"
+                f"root:/{encoded_path}:/content",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"download failed ({response.status_code})")
+            return response.content
+
+        def from_excel(content, filename):
+            wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+            ws = wb["ODS"] if "ODS" in wb.sheetnames else wb[wb.sheetnames[0]]
+            identity = str(ws["B7"].value or "").strip()
+            civility = ""
+            name = identity
+            match = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", identity, re.I)
+            if match:
+                civility = match.group(1)
+                name = match.group(2).strip()
+            address = _strip_label(ws["B8"].value, ["Adresse :", "Adresse:"])
+            phone = _strip_label(
+                ws["B9"].value,
+                ["Cell. :", "Cell.:", "Téléphone :", "Téléphone:"],
+            )
+            email = _strip_label(
+                ws["B10"].value,
+                ["Courriel :", "Courriel:", "Email :", "Email:"],
+            )
+            description = str(ws["B47"].value or "").strip()
+            ods_num = str(ws["B12"].value or filename.rsplit(".", 1)[0]).strip()
+            price = ws["E47"].value
+            result = {
+                "name": clean_placeholder(name),
+                "civility": clean_placeholder(civility),
+                "addr": clean_placeholder(address),
+                "project_address": clean_placeholder(address),
+                "phone": clean_placeholder(phone),
+                "email": clean_placeholder(email),
+                "desc": clean_placeholder(description),
+                "service": clean_placeholder(description),
+                "odsNum": clean_placeholder(ods_num),
+                "price": float(price or 0),
+            }
+            if description:
+                result["service_lines"] = [
+                    line.strip().lstrip("•").strip().rstrip(";")
+                    for line in description.splitlines() if line.strip()
+                ][:5]
+            return result
+
+        def from_pdf(content, filename):
+            reader = PdfReader(io.BytesIO(content))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+            lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if line.strip()]
+            address = phone = email = name = civility = ods_num = ""
+            for index, line in enumerate(lines):
+                lowered = line.lower()
+                if lowered.startswith("adresse"):
+                    address = line.split(":", 1)[1].strip() if ":" in line else ""
+                elif lowered.startswith(("cell.", "cell :", "téléphone", "telephone")):
+                    phone = line.split(":", 1)[1].strip() if ":" in line else ""
+                elif lowered.startswith(("courriel", "email")):
+                    email = line.split(":", 1)[1].strip() if ":" in line else ""
+                elif re.match(r"^ODS\d{2}-\d{3}", line, re.I):
+                    ods_num = line.split()[0]
+                elif re.match(r"^(M\.|Mme|M\./Mme)\s+", line, re.I):
+                    match = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", line, re.I)
+                    if match and not name:
+                        civility, name = match.group(1), match.group(2).strip()
+            if not email:
+                match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)
+                email = match.group(0) if match else ""
+            result = {
+                "name": clean_placeholder(name),
+                "civility": clean_placeholder(civility),
+                "addr": clean_placeholder(address),
+                "project_address": clean_placeholder(address),
+                "phone": clean_placeholder(phone),
+                "email": clean_placeholder(email),
+                "odsNum": clean_placeholder(ods_num or filename.rsplit(".", 1)[0]),
+            }
+            return result
+
+        best = {}
+        for relative_path, item in candidates:
+            filename = str(item.get("name") or "")
+            try:
+                content = download(relative_path)
+                if filename.lower().endswith((".xlsx", ".xlsm")):
+                    recovered = from_excel(content, filename)
+                else:
+                    recovered = from_pdf(content, filename)
+                for field, value in recovered.items():
+                    if value not in (None, "", 0) and not best.get(field):
+                        best[field] = value
+                if all(best.get(field) for field in ("name", "addr", "phone", "email")):
+                    break
+            except Exception as exc:
+                logger.warning("Invoice metadata source skipped %s: %s", relative_path, exc)
+
         logger.info(
-            "Recovered invoice metadata from %s for %s: name=%s phone=%s email=%s address=%s",
-            filename,
+            "Recovered project %s metadata: name=%s phone=%s email=%s address=%s sources=%s",
             folder_name,
-            bool(result.get("name")),
-            bool(result.get("phone")),
-            bool(result.get("email")),
-            bool(result.get("addr")),
+            bool(best.get("name")),
+            bool(best.get("phone")),
+            bool(best.get("email")),
+            bool(best.get("addr")),
+            len(candidates),
         )
-        return result
+        return best
     except Exception:
-        logger.exception("Unable to recover project metadata from ODS Excel for %s", folder_name)
+        logger.exception("Unable to recover project metadata from files for %s", folder_name)
         return {}
 
 INVOICE_CLIENT_FIELDS = (
