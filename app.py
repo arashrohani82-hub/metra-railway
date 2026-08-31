@@ -46,6 +46,9 @@ EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'arash.rohani@metrastructure.ca')
 INVOICE_EMAIL_SENDER = os.environ.get(
     'INVOICE_EMAIL_SENDER', 'accounting@metrastructure.ca'
 )
+INVOICE_CC_EMAIL = os.environ.get(
+    'INVOICE_CC_EMAIL', 'arash.rohani@metrastructure.ca'
+).strip()
 INVOICE_DRIVE_OWNER = os.environ.get(
     'INVOICE_DRIVE_OWNER', EMAIL_SENDER
 )
@@ -1683,6 +1686,9 @@ def send_invoice_email(token, recipient, filename, pdf_bytes, data, invoice_numb
                 ),
             },
             'toRecipients': [{'emailAddress': {'address': recipient}}],
+            'ccRecipients': [
+                {'emailAddress': {'address': INVOICE_CC_EMAIL}}
+            ],
             'attachments': [{
                 '@odata.type': '#microsoft.graph.fileAttachment',
                 'name': filename,
@@ -1823,6 +1829,7 @@ def do_issue_invoice(chat_id, uid):
         tg(
             chat_id,
             f"✅ Facture no {number} créée et envoyée à {recipient}\n"
+            f"CC : {INVOICE_CC_EMAIL}\n"
             f"Fichier : {filename}\n"
             f"Total : {values['total']:,.2f} $\n"
             f"Échéance : {due_date.isoformat()}",
