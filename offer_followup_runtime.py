@@ -278,6 +278,8 @@ def show_email_menu(chat_id, uid):
             star = " ⭐" if day == recommended else ""
             row.append({"text": f"Suivi {day} jours{star}", "callback_data": f"of_email:{day}"})
         buttons.append(row)
+    star = " ⭐" if recommended == 30 else ""
+    buttons.append([{"text": f"Suivi final 30 jours{star}", "callback_data": "of_email:30"}])
     buttons.append([{"text": "⬅️ Retour", "callback_data": "of_detail"}])
     legacy.tg(
         chat_id,
@@ -386,7 +388,7 @@ def do_send_followup_email(chat_id, uid, test_only=False):
         message = (
             f"✅ Courriel de suivi {payload['day']} jours envoyé à {payload['recipient']}."
         )
-        if int(payload["day"]) == 15:
+        if int(payload["day"]) == 30:
             message += "\n\nSans réponse, vous pouvez ensuite choisir « Closed » dans la fiche de l’offre."
         legacy.tg(chat_id, message)
         show_offer(chat_id, uid)
