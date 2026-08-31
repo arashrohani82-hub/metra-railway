@@ -143,6 +143,36 @@ def update_list_status(reference, status):
         )
 
 
+def update_list_email(reference, email_address):
+    with legacy.ods_list_lock:
+        config = legacy.microsoft_email_config()
+        token = legacy.graph_access_token()
+        owner = config["EMAIL_SENDER"]
+        content = legacy.download_onedrive_path(token, owner, legacy.ODS_LIST_PATH)
+        workbook = openpyxl.load_workbook(io.BytesIO(content))
+        found = False
+        for ws in workbook.worksheets:
+            headers = {str(cell.value or "").strip(): cell.column for cell in ws[1] if cell.value is not None}
+            if "Description" not in headers or "Email" not in headers:
+                continue
+            for row in range(2, ws.max_row + 1):
+                description = str(ws.cell(row, headers["Description"]).value or "")
+                if reference.upper() in description.upper():
+                    ws.cell(row, headers["Email"]).value = email_address
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            raise RuntimeError("offre introuvable dans List.xlsx")
+        output = io.BytesIO()
+        workbook.save(output)
+        legacy.upload_onedrive_path(
+            token, owner, legacy.ODS_LIST_PATH, output.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+
 def _session(uid):
     return legacy.user_data.setdefault(str(uid), {})
 
@@ -296,8 +326,13 @@ def show_email_preview(chat_id, uid, day):
         return
     recipient = legacy.valid_client_email(offer.get("email"))
     if not recipient:
-        legacy.tg(chat_id, "⚠️ Aucun courriel client valide dans List.xlsx pour cette offre.")
-        return
+        for _ref, record in (legacy.offers_history.get(str(uid), {}) or {}).items():
+            data = (record or {}).get("data") or {}
+            if offer["reference"].upper() in str(_ref).upper() or offer["reference"].upper() in str(data.get("odsNum") or "").upper():
+                recipient = legacy.valid_client_email(data.get("email"))
+                if recipient:
+                    offer["email"] = recipient
+                    break
     try:
         subject, body = build_followup_email(offer, int(day))
     except (TypeError, ValueError):
@@ -309,15 +344,22 @@ def show_email_preview(chat_id, uid, day):
         "subject": subject, "body": body, "day": int(day),
     }
     _save_session(uid, session)
+    recipient_display = recipient or "⚠️ Courriel client manquant"
+    buttons = [
+        [{"text": "🧪 Envoyer un test à moi-même", "callback_data": "of_email_test"}],
+    ]
+    if recipient:
+        buttons.append([{"text": "✅ Confirmer et envoyer au client", "callback_data": "of_email_send"}])
+    else:
+        buttons.append([{"text": "✏️ Ajouter le courriel client", "callback_data": "of_email_add"}])
+    buttons.extend([
+        [{"text": "✏️ Choisir un autre modèle", "callback_data": "of_email_menu"}],
+        [{"text": "❌ Annuler", "callback_data": "of_email_cancel"}],
+    ])
     legacy.tg(
         chat_id,
-        f"✉️ Aperçu du courriel\n\nÀ : {recipient}\nObjet : {subject}\n\n{body}",
-        [
-            [{"text": "🧪 Envoyer un test à moi-même", "callback_data": "of_email_test"}],
-            [{"text": "✅ Confirmer et envoyer", "callback_data": "of_email_send"}],
-            [{"text": "✏️ Choisir un autre modèle", "callback_data": "of_email_menu"}],
-            [{"text": "❌ Annuler", "callback_data": "of_email_cancel"}],
-        ],
+        f"✉️ Aperçu du courriel\n\nÀ : {recipient_display}\nObjet : {subject}\n\n{body}",
+        buttons,
     )
 
 
@@ -355,6 +397,9 @@ def do_send_followup_email(chat_id, uid, test_only=False):
     payload = dict(session.get("pending_offer_followup_email") or {})
     if not payload:
         legacy.tg(chat_id, "❌ Aperçu expiré. Préparez de nouveau le courriel.")
+        return
+    if not test_only and not legacy.valid_client_email(payload.get("recipient")):
+        legacy.tg(chat_id, "⚠️ Ajoutez d’abord une adresse courriel client valide.")
         return
     if session.get("offer_followup_email_sending"):
         legacy.tg(chat_id, "⏳ Envoi déjà en cours.")
@@ -416,6 +461,29 @@ def handle_update_offer_followup(data):
     callback = data.get("callback_query") or {}
     actor_id = (callback.get("from") or msg.get("from") or {}).get("id")
     chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id") if callback else (msg.get("chat") or {}).get("id")
+    if msg and actor_id in legacy.ALLOWED_USERS:
+        uid = str(actor_id)
+        session = _session(uid)
+        if session.get("waiting_offer_followup_email") and msg.get("text"):
+            email_address = legacy.valid_client_email(str(msg.get("text") or "").strip())
+            if not email_address:
+                legacy.tg(chat_id, "❌ Adresse invalide. Exemple : client@example.com")
+                return
+            offer = _selected(uid)
+            pending = session.get("pending_offer_followup_email") or {}
+            try:
+                update_list_email(offer["reference"], email_address)
+                offer["email"] = email_address
+                pending["recipient"] = email_address
+                session["offer_followup_selected"] = offer
+                session["pending_offer_followup_email"] = pending
+                session["waiting_offer_followup_email"] = False
+                _save_session(uid, session)
+                legacy.tg(chat_id, "✅ Courriel ajouté dans List.xlsx.")
+                show_email_preview(chat_id, uid, pending.get("day"))
+            except Exception as exc:
+                legacy.tg(chat_id, f"❌ Enregistrement impossible : {exc}")
+            return
     if msg and str(msg.get("text") or "").strip() == "📬 Suivi offres":
         if actor_id not in legacy.ALLOWED_USERS:
             legacy.tg(chat_id, "⛔ Ce bot est privé.")
@@ -460,6 +528,11 @@ def handle_update_offer_followup(data):
             legacy.executor.submit(do_send_followup_email, chat_id, uid)
         elif cdata == "of_email_test":
             legacy.executor.submit(do_send_followup_email, chat_id, uid, True)
+        elif cdata == "of_email_add":
+            session = _session(uid)
+            session["waiting_offer_followup_email"] = True
+            _save_session(uid, session)
+            legacy.tg(chat_id, "✏️ Entrez l’adresse courriel du client :")
         elif cdata == "of_email_cancel":
             session = _session(uid)
             session.pop("pending_offer_followup_email", None)
