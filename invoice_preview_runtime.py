@@ -164,6 +164,26 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
         legacy.tg(chat_id, "❌ Projet introuvable. Ouvrez de nouveau Facturation.")
         return
 
+    missing = [
+        label for field, label in (
+            ('name', 'nom du client'),
+            ('addr', 'adresse'),
+            ('phone', 'téléphone'),
+            ('email', 'courriel'),
+        )
+        if not str(data.get(field) or '').strip()
+    ]
+    if missing or not legacy.valid_client_email(data.get('email')):
+        if not missing:
+            missing = ['courriel valide']
+        legacy.tg(
+            chat_id,
+            "⛔ Aperçu bloqué : informations client incomplètes.\n"
+            "À compléter : " + ", ".join(missing) + ".\n\n"
+            "Rouvrez Facturation et sélectionnez ce projet; le bot vous demandera chaque information manquante.",
+        )
+        return
+
     try:
         values = legacy.invoice_values(data.get('price') or 0, percentage, fixed_amount)
         data['pending_invoice'] = {
