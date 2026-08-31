@@ -21,9 +21,14 @@ FOLLOWUP_EMAILS = {
         "Pourriez-vous nous confirmer si le projet est toujours d’actualité et si vous souhaitez poursuivre avec les prochaines étapes?"
     ),
     15: (
-        "Nous effectuons un dernier suivi concernant notre offre de service {reference}. "
-        "Sans retour de votre part, nous considérerons la demande comme étant en suspens et fermerons le dossier pour le moment. "
-        "Nous pourrons naturellement le rouvrir si vous souhaitez poursuivre ultérieurement."
+        "Nous souhaitons effectuer un suivi concernant notre offre de service {reference}. "
+        "Nous restons disponibles pour répondre à vos questions ou discuter des prochaines étapes. "
+        "Veuillez noter que cette offre demeure valide pendant 30 jours suivant sa date d’émission."
+    ),
+    30: (
+        "Nous revenons vers vous concernant notre offre de service {reference}, dont la période de validité de 30 jours est maintenant arrivée à échéance. "
+        "Si votre projet est toujours d’actualité, n’hésitez pas à nous en informer afin que nous puissions confirmer la disponibilité et, au besoin, mettre l’offre à jour. "
+        "Sans retour de votre part, nous classerons simplement la demande comme inactive pour le moment."
     ),
 }
 
@@ -51,6 +56,8 @@ def build_followup_email(offer, followup_day):
 def recommended_followup_day(age_days):
     days = max(0, int(age_days or 0))
     if days >= 15:
+        if days >= 30:
+            return 30
         return 15
     if days >= 10:
         return 10
