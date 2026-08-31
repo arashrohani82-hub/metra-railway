@@ -99,24 +99,39 @@ def _strip_label(value, labels):
 
 
 def recover_project_metadata_from_onedrive(folder_name):
-    """Recover client/scope details from the ODS Excel archived in Correspondence."""
+    """Recover invoice metadata from an archived project ODS workbook."""
     try:
         config = legacy.microsoft_email_config()
         token = legacy.graph_access_token()
         sender = config["EMAIL_SENDER"]
-        year = datetime.now().strftime("%Y")
-        correspondence = (
-            f"Metra Structure Inc/Projects/{year}/{folder_name}/Correspondence"
-        )
+        year_match = re.match(r"^P(\d{2})-", str(folder_name or ""), re.I)
+        year = f"20{year_match.group(1)}" if year_match else datetime.now().strftime("%Y")
+        project_root = f"Metra Structure Inc/Projects/{year}/{folder_name}"
+
+        project_items = legacy.list_onedrive_children(token, sender, project_root)
+        correspondence_folders = [
+            str(item.get("name") or "").strip()
+            for item in project_items
+            if item.get("folder") and "correspond" in str(item.get("name") or "").lower()
+        ]
+        correspondence_name = correspondence_folders[0] if correspondence_folders else "Correspondence"
+        correspondence = f"{project_root}/{correspondence_name}"
         items = legacy.list_onedrive_children(token, sender, correspondence)
         xlsx_items = [
             item for item in items
-            if str(item.get("name") or "").lower().endswith(".xlsx")
-            and str(item.get("name") or "").upper().startswith("ODS")
+            if str(item.get("name") or "").lower().endswith((".xlsx", ".xlsm"))
         ]
         if not xlsx_items:
+            logger.warning("No archived Excel file found for invoice project %s", folder_name)
             return {}
-        xlsx_items.sort(key=lambda item: str(item.get("name") or ""), reverse=True)
+        xlsx_items.sort(
+            key=lambda item: (
+                str(item.get("name") or "").upper().startswith("ODS"),
+                str(item.get("lastModifiedDateTime") or ""),
+                str(item.get("name") or ""),
+            ),
+            reverse=True,
+        )
         item = xlsx_items[0]
         filename = str(item.get("name") or "")
         relative_path = f"{correspondence}/{filename}"
@@ -137,19 +152,30 @@ def recover_project_metadata_from_onedrive(folder_name):
         identity = str(ws["B7"].value or "").strip()
         civility = ""
         name = identity
-        m = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", identity, re.I)
-        if m:
-            civility = m.group(1)
-            name = m.group(2).strip()
+        match = re.match(r"^(M\.|Mme|M\./Mme)\s+(.*)$", identity, re.I)
+        if match:
+            civility = match.group(1)
+            name = match.group(2).strip()
         address = _strip_label(ws["B8"].value, ["Adresse :", "Adresse:"])
-        phone = _strip_label(ws["B9"].value, ["Cell. :", "Cell.:", "Téléphone :", "Téléphone:"])
-        email = _strip_label(ws["B10"].value, ["Courriel :", "Courriel:", "Email :", "Email:"])
+        phone = _strip_label(
+            ws["B9"].value,
+            ["Cell. :", "Cell.:", "Téléphone :", "Téléphone:"],
+        )
+        email = _strip_label(
+            ws["B10"].value,
+            ["Courriel :", "Courriel:", "Email :", "Email:"],
+        )
         description = str(ws["B47"].value or "").strip()
-        ods_num = filename.rsplit(".", 1)[0]
+        ods_num = str(ws["B12"].value or filename.rsplit(".", 1)[0]).strip()
+        price = ws["E47"].value
 
         def clean_placeholder(value):
             text = str(value or "").strip()
-            return "" if text in ("À compléter", "À confirmer", "—", "None") else text
+            placeholders = {
+                "", "à compléter", "à confirmer", "—", "none",
+                "client", "non indiqué", "non indique",
+            }
+            return "" if text.lower() in placeholders else text
 
         result = {
             "name": clean_placeholder(name),
@@ -160,7 +186,8 @@ def recover_project_metadata_from_onedrive(folder_name):
             "email": clean_placeholder(email),
             "desc": clean_placeholder(description),
             "service": clean_placeholder(description),
-            "odsNum": ods_num,
+            "odsNum": clean_placeholder(ods_num),
+            "price": float(price or 0),
         }
         if description:
             result["service_lines"] = [
@@ -169,14 +196,18 @@ def recover_project_metadata_from_onedrive(folder_name):
                 if line.strip()
             ][:5]
         logger.info(
-            "Recovered invoice metadata from %s: name=%s email=%s address=%s",
-            filename, bool(result.get("name")), bool(result.get("email")), bool(result.get("addr")),
+            "Recovered invoice metadata from %s for %s: name=%s phone=%s email=%s address=%s",
+            filename,
+            folder_name,
+            bool(result.get("name")),
+            bool(result.get("phone")),
+            bool(result.get("email")),
+            bool(result.get("addr")),
         )
         return result
     except Exception:
-        logger.exception("Unable to recover project metadata from ODS Excel")
+        logger.exception("Unable to recover project metadata from ODS Excel for %s", folder_name)
         return {}
-
 
 INVOICE_CLIENT_FIELDS = (
     ("name", "nom complet du client"),
@@ -306,14 +337,20 @@ def select_onedrive_project(chat_id, uid, choice_id):
 
     folder = choice["folder"]
     ref, record = _find_history_by_project_folder(folder)
+    recovered = recover_project_metadata_from_onedrive(folder)
     if record:
         data = legacy.history_data_copy(record.get("data") or {})
+        for field, value in recovered.items():
+            current = str(data.get(field) or "").strip()
+            if value not in (None, "", 0) and current.lower() in (
+                "", "client", "à compléter", "à confirmer", "non indiqué", "none"
+            ):
+                data[field] = value
         data["project_folder"] = folder
         data["project_web_url"] = choice.get("web_url") or record.get("project_web_url") or ""
         data["project_created"] = True
         data["selected_offer_ref"] = ref
     else:
-        recovered = recover_project_metadata_from_onedrive(folder)
         data = {
             **recovered,
             "project_folder": folder,
