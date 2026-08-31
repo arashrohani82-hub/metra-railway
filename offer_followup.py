@@ -46,7 +46,7 @@ def build_followup_email(offer, followup_day):
         f"{FOLLOWUP_EMAILS[day].format(reference=reference)}\n\n"
         "Cordialement,\n\n"
         "Arash Rohani, ing., P.Eng.\n"
-        "Président – Ingénieur en structure\n"
+        "Président – Ingénieur en structure et en génie civil\n"
         "Metra Consultation Inc.\n"
         "arash.rohani@metrastructure.ca | (438) 867-4131"
     )
