@@ -34,7 +34,13 @@ def test_quebec_tax_calculation_matches_invoice_48():
 
 def test_invoice_filename_keeps_invoice_and_project_separate():
     name = invoice_filename(49, sample_data(), date(2026, 8, 21))
-    assert name == "FAC P26-049-RES.pdf"
+    assert name == "FAC26-049_P26-030-RES.pdf"
+
+
+def test_invoice_filename_accepts_alphanumeric_project_discipline():
+    data = {"project_folder": "P26-022-6ZR-Reamenagement"}
+    name = invoice_filename(52, data, date(2026, 8, 31))
+    assert name == "FAC26-052_P26-022-6ZR.pdf"
 
 
 def test_invoice_pdf_is_generated():
