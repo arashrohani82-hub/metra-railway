@@ -602,6 +602,7 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
                 {'text': '🔒 Closed', 'callback_data': f'offer_status:Closed:{ref}'},
             ],
             [{'text': '⏸ Hold', 'callback_data': f'offer_status:Hold:{ref}'}],
+            [{'text': '🔄 In process', 'callback_data': f'offer_status:In process:{ref}'}],
         ],
     )
 
@@ -1764,6 +1765,7 @@ def do_send_email(chat_id, uid):
                     {'text': '🔒 Closed', 'callback_data': 'ods_status:Closed'},
                 ],
                 [{'text': '⏸ Hold', 'callback_data': 'ods_status:Hold'}],
+                [{'text': '🔄 In process', 'callback_data': 'ods_status:In process'}],
             ],
         )
     except Exception as exc:
