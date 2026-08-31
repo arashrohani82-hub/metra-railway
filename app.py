@@ -31,8 +31,8 @@ ods_list_lock = threading.Lock()
 photo_batch_lock = threading.Lock()
 photo_batches = {}
 
-DISPLAY_BRAND = 'Métra Consultation Inc.'
-DISPLAY_BRAND_SHORT = 'Métra Consultation'
+DISPLAY_BRAND = 'Metra Consultation Inc.'
+DISPLAY_BRAND_SHORT = 'Metra Consultation'
 
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -286,7 +286,10 @@ def ask_desc_options(chat_id, uid):
             "\"short_mandate\":\"one short professional paragraph, maximum 70 words\","
             "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\",\"line 4\",\"line 5 if justified\"]}. "
             "Use 3 to 5 service lines. Each line must be a concrete engineering action or deliverable, "
-            "short enough for an ODS table, and end without a period. Order the services logically: "
+            "short enough for an ODS table, and end without a period. Every line must be a complete "
+            "sentence or complete noun phrase. Never use an ellipsis (... or …), never abbreviate a "
+            "service line, and never end with an unfinished connector such as 'incluant', 'notamment', "
+            "'concernant' or 'quant à'. Order the services logically: "
             "review of available documents, site work/relevé, structural analysis, design or technical "
             "recommendations, and the requested signed/sealed deliverable. Do not add generic filler such "
             "as client coordination, availability, meetings, communications, or project administration unless "
@@ -304,9 +307,9 @@ def ask_desc_options(chat_id, uid):
         result = result.replace("```json", "").replace("```", "").strip()
         proposal = json.loads(result)
         service_lines = [
-            str(line).strip().rstrip(".;") + ";"
+            cleaned + ";"
             for line in proposal.get("service_lines", [])[:5]
-            if str(line).strip()
+            if (cleaned := _clean_service_line(line))
         ]
         short_mandate = str(proposal.get("short_mandate") or raw_desc).strip()
         d["project_title"] = str(proposal.get("project_title") or service).strip()
@@ -603,13 +606,7 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
 
 def draw_header_footer(canvas, doc):
     canvas.saveState()
-    canvas.drawImage(LOGOS['metra'], 1.8*cm, H-3.0*cm, width=2.8*cm, height=1.8*cm, preserveAspectRatio=True, mask='auto')
-    # Keep the established Métra artwork while replacing its legacy subtitle.
-    canvas.setFillColor(colors.white)
-    canvas.rect(1.8*cm, H-3.0*cm, 2.8*cm, 0.78*cm, stroke=0, fill=1)
-    canvas.setFillColor(colors.HexColor('#14213D'))
-    canvas.setFont('Helvetica-Bold', 4.8)
-    canvas.drawCentredString(3.2*cm, H-2.72*cm, 'CONSULTATION INC.')
+    canvas.drawImage(LOGOS['metra'], 1.8*cm, H-2.85*cm, width=3.6*cm, height=1.35*cm, preserveAspectRatio=True, mask='auto')
     canvas.setFillColor(BLACK)
     canvas.setFont('Helvetica-Bold', 10)
     canvas.drawCentredString(W/2, H-1.7*cm, 'Ingénierie des structures / Structural Engineering')
@@ -666,8 +663,25 @@ def client_contact_fields(data):
     }
 
 
+def _clean_service_line(value):
+    """Return a complete service line without truncation or ellipsis."""
+    text = re.sub(r'\s+', ' ', str(value or '')).strip(' •;.')
+    ellipsis = re.search(r'(?:\.{3,}|…)', text)
+    if ellipsis:
+        text = text[:ellipsis.start()].rstrip(' ,;:–-')
+        if ',' in text:
+            prefix, fragment = text.rsplit(',', 1)
+            fragment = fragment.strip().lower()
+            if re.match(
+                r"^(?:incluant|notamment|comprenant|y compris|ainsi que|et\b|ou\b|quant à|relatif|relative|concernant)",
+                fragment,
+            ):
+                text = prefix.rstrip(' ,;:–-')
+    return text.strip(' •;.')
+
+
 def _build_service_desc(data):
-    """Up to 5 concise technical lines for the PDF table cell."""
+    """Up to 5 complete technical lines for the PDF table cell."""
     # Priority: service_lines from extraction
     raw = data.get('service_lines') or []
     if not raw:
@@ -675,10 +689,10 @@ def _build_service_desc(data):
         desc = data.get('desc') or data.get('service') or ''
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
     result = []
-    for line in raw[:4]:
-        compact_line = str(line).strip().rstrip(';. ')
-        if len(compact_line) > 140:
-            compact_line = compact_line[:137].rstrip() + '…'
+    for line in raw[:5]:
+        compact_line = _clean_service_line(line)
+        if not compact_line:
+            continue
         result.append('• ' + compact_line + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
@@ -730,7 +744,7 @@ def generate_pdf(data):
     story.append(Paragraph('Courriel : ' + contact['email'], sn))
     story.append(Spacer(1, 3))
     story.append(Paragraph(f'<b>{data["odsNum"]}</b>', sn))
-    story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | MÉTRA CONSULTATION INC.', sc))
+    story.append(Paragraph('CADRE CONTRACTUEL – PROPOSITION DE SERVICES | METRA CONSULTATION INC.', sc))
     story.append(Paragraph(
         f"L'équipe de {DISPLAY_BRAND} vous remercie pour votre confiance à l'égard de notre proposition de services. "
         "Nous vous informons que la présente offre, ainsi que les conditions qui l'accompagnent, forment un accord unique et indissociable. "
@@ -857,7 +871,7 @@ Return ONLY JSON:
 
 CONTACT RULES:
 1. Read the complete email header AND the complete message body across every screenshot.
-2. From/sender email is the client's email. The To/recipient account belongs to Métra Consultation; never return an @metrastructure.ca address as the client email.
+2. From/sender email is the client's email. The To/recipient account belongs to Metra Consultation; never return an @metrastructure.ca address as the client email.
 3. An explicit self-identification in the body, such as "my name is" or "je m'appelle", overrides a shortened/different display name in the From line.
 4. Extract every visible client phone number from the message body or signature. Do not leave phone blank when a number is visibly written.
 5. Use the full project address stated in the body or subject. Preserve street number, street, city and postal code exactly as visible.
@@ -1150,7 +1164,7 @@ def build_email_preview(data):
 
 
 def email_body_html(body):
-    """Render the approved email text with a consistent Métra signature."""
+    """Render the approved email text with a consistent Metra signature."""
     paragraphs = [
         html.escape(part).replace('\n', '<br>')
         for part in body.rsplit('Cordialement,', 1)[0].strip().split('\n\n')
@@ -1424,7 +1438,7 @@ def upload_onedrive_file(token, sender, filename, content, content_type):
 
 
 def archive_ods_files(data, token, sender, pdf_bytes):
-    """Archive the final PDF and Excel in Métra's OneDrive ODS folder."""
+    """Archive the final PDF and Excel in Metra's OneDrive ODS folder."""
     base_name = safe_archive_filename(data.get('odsNum') or 'ODS')
     excel = generate_excel(data)
     excel.seek(0)

@@ -58,6 +58,17 @@ def test_offer_pdf_uses_consultation_branding():
     }
     pdf = app.generate_pdf(data)
     text = "\n".join(page.extract_text() or "" for page in PdfReader(pdf).pages)
-    assert "MÉTRA CONSULTATION INC." in text
-    assert "Métra Consultation Inc." in text
-    assert "Métra Structure Inc." not in text
+    assert "METRA CONSULTATION INC." in text
+    assert "Metra Consultation Inc." in text
+    assert "Structure Inc." not in text
+
+
+def test_service_lines_are_complete_and_never_truncated_with_ellipsis():
+    long_line = (
+        "Inspection visuelle des fondations à l'intérieur et à l'extérieur, "
+        "avec relevé des fissures, déformations et traces d'humidité, incluant…"
+    )
+    cleaned = app._clean_service_line(long_line)
+    assert cleaned.endswith("traces d'humidité")
+    assert "…" not in cleaned
+    assert "..." not in cleaned

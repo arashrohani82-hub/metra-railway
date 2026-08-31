@@ -91,10 +91,18 @@ def _service_lines(data):
     cleaned = []
     for line in lines:
         compact = re.sub(r"\s+", " ", str(line)).strip(" •;.")
+        ellipsis = re.search(r"(?:\.{3,}|…)", compact)
+        if ellipsis:
+            compact = compact[:ellipsis.start()].rstrip(" ,;:–-")
+            if "," in compact:
+                prefix, fragment = compact.rsplit(",", 1)
+                if re.match(
+                    r"^(?:incluant|notamment|comprenant|y compris|ainsi que|et\b|ou\b|quant à|relatif|relative|concernant)",
+                    fragment.strip().lower(),
+                ):
+                    compact = prefix.rstrip(" ,;:–-")
         if not compact:
             continue
-        if len(compact) > 350:
-            compact = compact[:347].rstrip() + "…"
         cleaned.append(compact)
     return cleaned[:5]
 
@@ -157,17 +165,11 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
 
     logo = ""
     if logo_path and os.path.exists(logo_path):
-        logo = Drawing(4.0 * cm, 1.65 * cm)
-        logo.add(DrawingImage(0, 0, 4.0 * cm, 1.65 * cm, logo_path))
-        logo.add(Rect(0, 0, 4.0 * cm, 0.64 * cm, fillColor=colors.white, strokeColor=None))
-        logo.add(String(
-            2.0 * cm, 0.18 * cm, 'CONSULTATION INC.',
-            fontName='Helvetica-Bold', fontSize=5.2,
-            fillColor=colors.HexColor('#14213D'), textAnchor='middle',
-        ))
+        logo = Drawing(4.0 * cm, 1.45 * cm)
+        logo.add(DrawingImage(0, 0, 4.0 * cm, 1.45 * cm, logo_path))
 
     company = Paragraph(
-        "<b>Métra Consultation Inc.</b><br/>"
+        "<b>Metra Consultation Inc.</b><br/>"
         "1280, rue Saint-Jacques, Montréal (Québec) H3C 0G1<br/>"
         '<font color="#1155cc"><u>accounting@metrastructure.ca</u></font><br/>'
         '<font color="#1155cc"><u>www.metrastructure.ca</u></font>',

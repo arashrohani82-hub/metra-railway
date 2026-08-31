@@ -232,7 +232,7 @@ def handle_update_with_project_invoicing(data):
                     return
                 legacy.tg(
                     chat_id,
-                    "👋 Métra Consultation\n\nChoisissez une opération :",
+                    "👋 Metra Consultation\n\nChoisissez une opération :",
                     reply_markup=invoicing_main_menu(),
                 )
                 return
