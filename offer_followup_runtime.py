@@ -1,4 +1,5 @@
 import io
+import html
 import logging
 import os
 import re
@@ -9,7 +10,10 @@ import openpyxl
 import requests
 
 import menu_guard_runtime as guarded
-from offer_followup import FollowupStore, followup_stage, is_open_offer, normalized_status, parse_date
+from offer_followup import (
+    FollowupStore, build_followup_email, followup_stage, is_open_offer,
+    normalized_status, parse_date, recommended_followup_day,
+)
 
 
 app = guarded.app
@@ -244,6 +248,7 @@ def show_offer(chat_id, uid):
         return
     state = STORE.load().get("offers", {}).get(offer["reference"], {})
     buttons = [
+        [{"text": "✉️ Préparer un courriel de suivi", "callback_data": "of_email_menu"}],
         [{"text": "✅ Relance effectuée", "callback_data": "of_mark"}],
         [
             {"text": "⏸ Hold", "callback_data": "of_status:Hold"},
@@ -257,6 +262,122 @@ def show_offer(chat_id, uid):
         [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
     legacy.tg(chat_id, _offer_text(offer, state), buttons)
+
+
+def show_email_menu(chat_id, uid):
+    offer = _selected(uid)
+    if not offer:
+        legacy.tg(chat_id, "❌ Offre introuvable.")
+        return
+    age = followup_stage(offer.get("date"), local_now().date())["days"]
+    recommended = recommended_followup_day(age)
+    buttons = []
+    for left, right in ((3, 7), (10, 15)):
+        row = []
+        for day in (left, right):
+            star = " ⭐" if day == recommended else ""
+            row.append({"text": f"Suivi {day} jours{star}", "callback_data": f"of_email:{day}"})
+        buttons.append(row)
+    buttons.append([{"text": "⬅️ Retour", "callback_data": "of_detail"}])
+    legacy.tg(
+        chat_id,
+        f"✉️ Courriel de suivi\n\nCette offre a été envoyée il y a {age} jour(s).\n"
+        f"Étape suggérée : suivi {recommended} jours.\n\nChoisissez le modèle :",
+        buttons,
+    )
+
+
+def show_email_preview(chat_id, uid, day):
+    offer = _selected(uid)
+    if not offer:
+        legacy.tg(chat_id, "❌ Offre introuvable.")
+        return
+    recipient = legacy.valid_client_email(offer.get("email"))
+    if not recipient:
+        legacy.tg(chat_id, "⚠️ Aucun courriel client valide dans List.xlsx pour cette offre.")
+        return
+    try:
+        subject, body = build_followup_email(offer, int(day))
+    except (TypeError, ValueError):
+        legacy.tg(chat_id, "❌ Modèle de suivi non valide.")
+        return
+    session = _session(uid)
+    session["pending_offer_followup_email"] = {
+        "reference": offer["reference"], "recipient": recipient,
+        "subject": subject, "body": body, "day": int(day),
+    }
+    _save_session(uid, session)
+    legacy.tg(
+        chat_id,
+        f"✉️ Aperçu du courriel\n\nÀ : {recipient}\nObjet : {subject}\n\n{body}",
+        [
+            [{"text": "✅ Confirmer et envoyer", "callback_data": "of_email_send"}],
+            [{"text": "✏️ Choisir un autre modèle", "callback_data": "of_email_menu"}],
+            [{"text": "❌ Annuler", "callback_data": "of_email_cancel"}],
+        ],
+    )
+
+
+def _followup_html(body):
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.5;color:#1f1f1f">'
+        + html.escape(str(body or "")).replace("\n", "<br>")
+        + "</div>"
+    )
+
+
+def send_followup_email(payload):
+    config = legacy.microsoft_email_config()
+    token = legacy.graph_access_token()
+    sender = requests.utils.quote(config["EMAIL_SENDER"], safe="")
+    response = requests.post(
+        f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={
+            "message": {
+                "subject": payload["subject"],
+                "body": {"contentType": "HTML", "content": _followup_html(payload["body"])},
+                "toRecipients": [{"emailAddress": {"address": payload["recipient"]}}],
+            },
+            "saveToSentItems": True,
+        },
+        timeout=45,
+    )
+    if response.status_code != 202:
+        raise RuntimeError(f"Microsoft 365 a refusé l’envoi ({response.status_code})")
+
+
+def do_send_followup_email(chat_id, uid):
+    session = _session(uid)
+    payload = dict(session.get("pending_offer_followup_email") or {})
+    if not payload:
+        legacy.tg(chat_id, "❌ Aperçu expiré. Préparez de nouveau le courriel.")
+        return
+    if session.get("offer_followup_email_sending"):
+        legacy.tg(chat_id, "⏳ Envoi déjà en cours.")
+        return
+    session["offer_followup_email_sending"] = True
+    _save_session(uid, session)
+    try:
+        send_followup_email(payload)
+        STORE.mark_followed(payload["reference"], local_now().date(), payload["day"])
+        session = _session(uid)
+        session.pop("pending_offer_followup_email", None)
+        session["offer_followup_email_sending"] = False
+        _save_session(uid, session)
+        message = (
+            f"✅ Courriel de suivi {payload['day']} jours envoyé à {payload['recipient']}."
+        )
+        if int(payload["day"]) == 15:
+            message += "\n\nSans réponse, vous pouvez ensuite choisir « Closed » dans la fiche de l’offre."
+        legacy.tg(chat_id, message)
+        show_offer(chat_id, uid)
+    except Exception as exc:
+        session = _session(uid)
+        session["offer_followup_email_sending"] = False
+        _save_session(uid, session)
+        logger.exception("Offer follow-up email failed")
+        legacy.tg(chat_id, f"❌ Envoi impossible : {exc}")
 
 
 def _history_reference(uid, reference):
@@ -310,6 +431,20 @@ def handle_update_offer_followup(data):
                 return
             STORE.mark_followed(offer["reference"], local_now().date())
             legacy.tg(chat_id, "✅ Relance enregistrée. Vous choisissez vous-même la prochaine action.")
+            show_offer(chat_id, uid)
+        elif cdata == "of_email_menu":
+            show_email_menu(chat_id, uid)
+        elif cdata.startswith("of_email:"):
+            show_email_preview(chat_id, uid, cdata.split(":", 1)[1])
+        elif cdata == "of_email_send":
+            legacy.executor.submit(do_send_followup_email, chat_id, uid)
+        elif cdata == "of_email_cancel":
+            session = _session(uid)
+            session.pop("pending_offer_followup_email", None)
+            _save_session(uid, session)
+            legacy.tg(chat_id, "✅ Courriel non envoyé.")
+            show_offer(chat_id, uid)
+        elif cdata == "of_detail":
             show_offer(chat_id, uid)
         elif cdata.startswith("of_status:"):
             offer = _selected(uid)
