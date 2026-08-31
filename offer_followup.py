@@ -47,7 +47,8 @@ def build_followup_email(offer, followup_day):
         raise ValueError("unsupported follow-up day")
     reference = str(offer.get("reference") or "votre projet").strip()
     contact = str(offer.get("contact") or "").strip()
-    greeting = f"Bonjour {contact}," if contact else "Bonjour,"
+    first_name = contact.split()[0].strip(",;:") if contact else ""
+    greeting = f"Bonjour {first_name}," if first_name else "Bonjour,"
     subject = f"Petit suivi concernant votre projet – {reference}"
     body = (
         f"{greeting}\n\n"
