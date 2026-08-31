@@ -3,6 +3,7 @@ import html
 import logging
 import os
 import re
+import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -171,6 +172,127 @@ def update_list_email(reference, email_address):
             token, owner, legacy.ODS_LIST_PATH, output.getvalue(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+
+def _email_from_text(value):
+    match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", str(value or ""), re.I)
+    return legacy.valid_client_email(match.group(0)) if match else ""
+
+
+def _history_email(reference):
+    for records in (legacy.offers_history or {}).values():
+        for ref, record in (records or {}).items():
+            data = (record or {}).get("data") or {}
+            if reference.upper() in str(ref).upper() or reference.upper() in str(data.get("odsNum") or "").upper():
+                email_address = legacy.valid_client_email(data.get("email"))
+                if email_address:
+                    return email_address
+    return ""
+
+
+def _archive_email(reference, token, owner, archive_items):
+    candidates = [
+        str(item.get("name") or "") for item in archive_items
+        if str(item.get("name") or "").lower().endswith(".xlsx")
+        and reference.upper() in str(item.get("name") or "").upper()
+    ]
+    for filename in candidates:
+        try:
+            content = legacy.download_onedrive_path(
+                token, owner, f"Metra Structure Inc/Offre de service/{filename}"
+            )
+            workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+            ws = workbook["ODS"] if "ODS" in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+            # The approved ODS template stores the client email in B10. Search
+            # only the client-information block as a fallback so the company
+            # signature email is never mistaken for the client's address.
+            for value in [ws["B10"].value] + [ws.cell(row, 2).value for row in range(7, 16)]:
+                email_address = _email_from_text(value)
+                if email_address and email_address.lower() not in {
+                    str(owner).lower(), "accounting@metrastructure.ca"
+                }:
+                    return email_address
+        except Exception as exc:
+            logger.warning("August email recovery skipped %s: %s", filename, exc)
+    return ""
+
+
+def complete_august_2026_emails():
+    """Fill only missing client emails in August 2026 rows of List.xlsx."""
+    with legacy.ods_list_lock:
+        config = legacy.microsoft_email_config()
+        token = legacy.graph_access_token()
+        owner = config["EMAIL_SENDER"]
+        content = legacy.download_onedrive_path(token, owner, legacy.ODS_LIST_PATH)
+        workbook = openpyxl.load_workbook(io.BytesIO(content))
+        if "data 2026" not in workbook.sheetnames:
+            raise RuntimeError("onglet data 2026 introuvable")
+        ws = workbook["data 2026"]
+        headers = {str(cell.value or "").strip(): cell.column for cell in ws[1] if cell.value is not None}
+        for required in ("Description", "Date", "Email"):
+            if required not in headers:
+                raise RuntimeError(f"colonne {required} introuvable")
+        archive_items = legacy.list_onedrive_children(
+            token, owner, "Metra Structure Inc/Offre de service"
+        )
+        stats = {"august_rows": 0, "already_valid": 0, "filled": 0, "unresolved": []}
+        for row in range(2, ws.max_row + 1):
+            sent_at = parse_date(ws.cell(row, headers["Date"]).value)
+            if not sent_at or sent_at.year != 2026 or sent_at.month != 8:
+                continue
+            description = str(ws.cell(row, headers["Description"]).value or "").strip()
+            if not description:
+                continue
+            stats["august_rows"] += 1
+            current = legacy.valid_client_email(ws.cell(row, headers["Email"]).value)
+            if current:
+                stats["already_valid"] += 1
+                continue
+            reference = _reference(description)
+            email_address = _history_email(reference) or _archive_email(
+                reference, token, owner, archive_items
+            )
+            if email_address:
+                ws.cell(row, headers["Email"]).value = email_address
+                stats["filled"] += 1
+            else:
+                stats["unresolved"].append(reference)
+        if stats["filled"]:
+            output = io.BytesIO()
+            workbook.save(output)
+            legacy.upload_onedrive_path(
+                token, owner, legacy.ODS_LIST_PATH, output.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        return stats
+
+
+def _run_august_email_backfill():
+    # Run once on the active production service only. The marker lives on the
+    # persistent Railway volume and prevents repeated writes after restarts.
+    marker = "august_email_backfill_2026_v1"
+    if STORE.scheduler_value(marker):
+        return
+    threading.Event().wait(20)
+    try:
+        stats = complete_august_2026_emails()
+        STORE.scheduler_value(marker, local_now().isoformat())
+        unresolved = stats["unresolved"]
+        message = (
+            "📧 Complétion des courriels — août 2026\n\n"
+            f"Lignes d’août : {stats['august_rows']}\n"
+            f"Déjà valides : {stats['already_valid']}\n"
+            f"Courriels ajoutés : {stats['filled']}\n"
+            f"Introuvables : {len(unresolved)}"
+        )
+        if unresolved:
+            message += "\n\nÀ compléter manuellement :\n" + "\n".join(f"• {ref}" for ref in unresolved[:25])
+        for chat_id in sorted(legacy.ALLOWED_USERS):
+            legacy.tg(chat_id, message)
+    except Exception as exc:
+        logger.exception("August 2026 email backfill failed")
+        for chat_id in sorted(legacy.ALLOWED_USERS):
+            legacy.tg(chat_id, f"❌ Complétion des courriels d’août impossible : {exc}")
 
 
 def _session(uid):
@@ -573,3 +695,6 @@ def handle_update_offer_followup(data):
 
 legacy.handle_update = handle_update_offer_followup
 logger.info("OPEN OFFER FOLLOW-UP RUNTIME ACTIVE")
+
+if os.environ.get("RAILWAY_SERVICE_NAME", "") == "metra-offre-invoice-bot":
+    threading.Thread(target=_run_august_email_backfill, name="august-email-backfill", daemon=True).start()
