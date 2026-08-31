@@ -1398,9 +1398,13 @@ def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=No
         start, _ = table.ref.split(':', 1)
         end_col = openpyxl.utils.get_column_letter(ws.max_column)
         table.ref = f"{start}:{end_col}{max(target_row, last_data_row)}"
-    workbook.calculation.fullCalcOnLoad = True
-    workbook.calculation.forceFullCalc = True
-    workbook.calculation.calcMode = 'auto'
+    # Some existing Excel workbooks do not contain a calcPr element.
+    # In that case openpyxl exposes workbook.calculation as None.
+    calculation = getattr(workbook, 'calculation', None)
+    if calculation is not None:
+        calculation.fullCalcOnLoad = True
+        calculation.forceFullCalc = True
+        calculation.calcMode = 'auto'
     return target_row
 
 
