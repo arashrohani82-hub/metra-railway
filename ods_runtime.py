@@ -224,22 +224,31 @@ def recover_project_metadata_from_onedrive(folder_name):
                 email = match.group(0) if match else ""
 
             service_lines = []
-            section_match = re.search(
-                r"Description des services(.*?)(?:Total des honoraires|AUTRES FRAIS|Cette offre est basée)",
-                text,
-                re.I | re.S,
-            )
-            if section_match:
-                service_section = section_match.group(1)
+            lowered_text = text.lower()
+            section_start = lowered_text.rfind("description des services")
+            if section_start >= 0:
+                service_section = text[section_start + len("description des services"):]
+                end_positions = [
+                    position for marker in (
+                        "total des honoraires", "autres frais", "cette offre est basée"
+                    )
+                    if (position := service_section.lower().find(marker)) >= 0
+                ]
+                if end_positions:
+                    service_section = service_section[:min(end_positions)]
                 numbered = re.findall(
                     r"(?:^|\n)\s*\d+\s*[.)]\s*(.+?)(?=(?:\n\s*\d+\s*[.)])|\Z)",
                     service_section,
                     re.S,
                 )
                 for item in numbered:
-                    item = re.split(r"\bForfait\b|\bUnité\b|\bQuantité\b|\bCoût unitaire\b", item, maxsplit=1)[0]
+                    item = re.split(
+                        r"\bForfait\b|\bUnité\b|\bQuantité\b|\bCoût unitaire\b|\bCoût total\b",
+                        item,
+                        maxsplit=1,
+                    )[0]
                     cleaned = re.sub(r"\s+", " ", item).strip(" ;.")
-                    if cleaned:
+                    if 5 <= len(cleaned) <= 350:
                         service_lines.append(cleaned)
             service_lines = service_lines[:5]
             description = "\n".join(service_lines)
