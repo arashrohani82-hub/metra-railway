@@ -57,7 +57,10 @@ def invoice_discipline(data):
 
 def invoice_filename(invoice_number, data, invoice_date=None):
     invoice_date = invoice_date or date.today()
-    return f"FAC P{invoice_date.strftime('%y')}-{int(invoice_number):03d}-{invoice_discipline(data)}.pdf"
+    folder = str(data.get("project_folder") or "").strip()
+    match = re.search(r"^(P\d{2}-\d{3}(?:-[A-Z0-9]{2,5})?)(?:-|$)", folder, re.I)
+    project = match.group(1).upper() if match else "PROJET"
+    return f"FAC{invoice_date.strftime('%y')}-{int(invoice_number):03d}_{project}.pdf"
 
 
 def _client_name(data):
