@@ -1,4 +1,5 @@
 import os
+import io
 import tempfile
 from datetime import datetime
 
@@ -69,18 +70,26 @@ def test_project_conversion_marks_offer_accepted():
     assert sheet["K3"].value == accepted_at
 
 
-def test_missing_workbook_calculation_settings_do_not_break_sync():
+def test_missing_calculation_properties_are_repaired_before_save():
     workbook = workbook_with_ods_sheet()
     workbook.calculation = None
     data = {
-        "odsNum": "ODS26-109-VDB-Test",
-        "price": 1000,
-        "name": "Test Client",
-        "email": "test@example.com",
-        "email_sent_at": "2026-08-31T13:35:00",
+        "odsNum": "ODS26-107-GGH-Évaluation-structurale-des-fondations",
+        "price": 1800,
+        "name": "Nevin El-Tahry",
+        "email": "nevin.i.reda@gmail.com",
+        "email_sent_at": "2026-08-31T11:51:00",
     }
 
     row = app.upsert_ods_list_workbook(workbook, data, "In process")
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    reopened = openpyxl.load_workbook(output)
 
     assert row == 3
-    assert workbook["data 2026"]["G3"].value == "In process"
+    assert reopened.calculation is not None
+    assert reopened.calculation.fullCalcOnLoad is True
+    assert reopened.calculation.forceFullCalc is True
+    assert reopened.calculation.calcMode == "auto"
+    assert reopened["data 2026"]["D3"].value.startswith("ODS26-107-GGH")

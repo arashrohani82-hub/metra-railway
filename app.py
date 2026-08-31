@@ -14,6 +14,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak, BaseDocTemplate, PageTemplate, Frame
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 import openpyxl
+from openpyxl.workbook.properties import CalcProperties
 import random
 import requests as req
 from technical_content import parse_custom_technical_content
@@ -1327,6 +1328,20 @@ def _copy_ods_list_row_style(ws, source_row, target_row):
         ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
 
 
+def _enable_workbook_recalculation(workbook):
+    """Keep List.xlsx saveable even when its calc properties are missing."""
+    if getattr(workbook, 'calculation', None) is None:
+        workbook.calculation = CalcProperties(
+            calcMode='auto',
+            fullCalcOnLoad=True,
+            forceFullCalc=True,
+        )
+        return
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    workbook.calculation.calcMode = 'auto'
+
+
 def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=None):
     """Insert or update one ODS row, keyed by the full ODS reference."""
     event_date = _ods_event_datetime(data, accepted_at)
@@ -1398,13 +1413,7 @@ def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=No
         start, _ = table.ref.split(':', 1)
         end_col = openpyxl.utils.get_column_letter(ws.max_column)
         table.ref = f"{start}:{end_col}{max(target_row, last_data_row)}"
-    # Some existing Excel workbooks do not contain a calcPr element.
-    # In that case openpyxl exposes workbook.calculation as None.
-    calculation = getattr(workbook, 'calculation', None)
-    if calculation is not None:
-        calculation.fullCalcOnLoad = True
-        calculation.forceFullCalc = True
-        calculation.calcMode = 'auto'
+    _enable_workbook_recalculation(workbook)
     return target_row
 
 
