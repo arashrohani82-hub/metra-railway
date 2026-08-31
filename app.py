@@ -1774,6 +1774,26 @@ def do_issue_invoice(chat_id, uid):
     try:
         data = user_data.get(uid, {})
         pending = data.get('pending_invoice') or {}
+        missing_client_details = [
+            label for field, label in (
+                ('name', 'nom du client'),
+                ('addr', 'adresse'),
+                ('phone', 'téléphone'),
+                ('email', 'courriel'),
+            )
+            if not str(data.get(field) or '').strip()
+        ]
+        if missing_client_details:
+            tg(
+                chat_id,
+                "⛔ Facture non envoyée : informations client incomplètes.\n"
+                "À compléter : " + ", ".join(missing_client_details) + ".\n\n"
+                "Rouvrez Facturation et sélectionnez le projet pour les compléter.",
+            )
+            return
+        if not valid_client_email(data.get('email')):
+            tg(chat_id, "⛔ Facture non envoyée : adresse courriel client invalide.")
+            return
         if not data.get('project_folder'):
             tg(chat_id, "❌ Numéro de projet introuvable.")
             return
