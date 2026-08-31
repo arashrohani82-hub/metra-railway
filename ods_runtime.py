@@ -233,7 +233,15 @@ def recover_project_metadata_from_onedrive(folder_name):
             }
             return result
 
-        best = {}
+        ignored_tokens = {
+            "reamenagement", "structural", "structure", "projet", "project",
+            "conception", "inspection", "design",
+        }
+        project_tokens = {
+            token for token in re.findall(r"[a-z0-9]{3,}", str(folder_name).lower())
+            if token not in ignored_tokens and not re.fullmatch(r"p?\d+", token)
+        }
+        scored_sources = []
         for relative_path, item in candidates:
             filename = str(item.get("name") or "")
             try:
@@ -242,22 +250,41 @@ def recover_project_metadata_from_onedrive(folder_name):
                     recovered = from_excel(content, filename)
                 else:
                     recovered = from_pdf(content, filename)
-                for field, value in recovered.items():
-                    if value not in (None, "", 0) and not best.get(field):
-                        best[field] = value
-                if all(best.get(field) for field in ("name", "addr", "phone", "email")):
-                    break
+                name_tokens = set(re.findall(
+                    r"[a-z0-9]{3,}", str(recovered.get("name") or "").lower()
+                ))
+                metadata_tokens = set(re.findall(
+                    r"[a-z0-9]{3,}",
+                    " ".join(str(value or "") for value in recovered.values()).lower(),
+                ))
+                name_matches = len(project_tokens & name_tokens)
+                metadata_matches = len(project_tokens & metadata_tokens)
+                completeness = sum(
+                    bool(recovered.get(field))
+                    for field in ("name", "addr", "phone", "email", "odsNum")
+                )
+                score = name_matches * 100 + metadata_matches * 10 + completeness
+                if filename.upper().startswith("ODS"):
+                    score += 3
+                scored_sources.append((score, recovered, filename))
+                logger.info(
+                    "Invoice metadata candidate project=%s file=%s score=%s name=%s",
+                    folder_name, filename, score, recovered.get("name") or "",
+                )
             except Exception as exc:
                 logger.warning("Invoice metadata source skipped %s: %s", relative_path, exc)
 
+        if not scored_sources:
+            return {}
+        scored_sources.sort(key=lambda entry: entry[0], reverse=True)
+        best_score, best, best_filename = scored_sources[0]
         logger.info(
-            "Recovered project %s metadata: name=%s phone=%s email=%s address=%s sources=%s",
+            "Selected invoice source project=%s file=%s score=%s client=%s email=%s",
             folder_name,
-            bool(best.get("name")),
-            bool(best.get("phone")),
-            bool(best.get("email")),
-            bool(best.get("addr")),
-            len(candidates),
+            best_filename,
+            best_score,
+            best.get("name") or "",
+            best.get("email") or "",
         )
         return best
     except Exception:
@@ -396,11 +423,11 @@ def select_onedrive_project(chat_id, uid, choice_id):
     if record:
         data = legacy.history_data_copy(record.get("data") or {})
         for field, value in recovered.items():
-            current = str(data.get(field) or "").strip()
-            if value not in (None, "", 0) and current.lower() in (
-                "", "client", "à compléter", "à confirmer", "non indiqué", "none"
-            ):
-                data[field] = value
+            if value in (None, "", 0):
+                continue
+            if field == "price" and float(data.get("price") or 0) > 0:
+                continue
+            data[field] = value
         data["project_folder"] = folder
         data["project_web_url"] = choice.get("web_url") or record.get("project_web_url") or ""
         data["project_created"] = True
