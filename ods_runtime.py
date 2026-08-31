@@ -222,6 +222,36 @@ def recover_project_metadata_from_onedrive(folder_name):
             if not email:
                 match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)
                 email = match.group(0) if match else ""
+
+            service_lines = []
+            section_match = re.search(
+                r"Description des services(.*?)(?:Total des honoraires|AUTRES FRAIS|Cette offre est basée)",
+                text,
+                re.I | re.S,
+            )
+            if section_match:
+                service_section = section_match.group(1)
+                numbered = re.findall(
+                    r"(?:^|\n)\s*\d+\s*[.)]\s*(.+?)(?=(?:\n\s*\d+\s*[.)])|\Z)",
+                    service_section,
+                    re.S,
+                )
+                for item in numbered:
+                    item = re.split(r"\bForfait\b|\bUnité\b|\bQuantité\b|\bCoût unitaire\b", item, maxsplit=1)[0]
+                    cleaned = re.sub(r"\s+", " ", item).strip(" ;.")
+                    if cleaned:
+                        service_lines.append(cleaned)
+            service_lines = service_lines[:5]
+            description = "\n".join(service_lines)
+
+            price = 0.0
+            price_matches = re.findall(r"\$\s*([0-9][0-9 ,]*[.]\d{2})", text)
+            if price_matches:
+                try:
+                    price = max(float(value.replace(" ", "").replace(",", "")) for value in price_matches)
+                except ValueError:
+                    price = 0.0
+
             result = {
                 "name": clean_placeholder(name),
                 "civility": clean_placeholder(civility),
@@ -230,6 +260,10 @@ def recover_project_metadata_from_onedrive(folder_name):
                 "phone": clean_placeholder(phone),
                 "email": clean_placeholder(email),
                 "odsNum": clean_placeholder(ods_num or filename.rsplit(".", 1)[0]),
+                "desc": clean_placeholder(description),
+                "service": clean_placeholder(description),
+                "service_lines": service_lines,
+                "price": price,
             }
             return result
 
