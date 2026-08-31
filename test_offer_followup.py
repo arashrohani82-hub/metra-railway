@@ -30,14 +30,15 @@ def test_followup_store_persists_count():
 def test_email_templates_and_recommended_stage():
     offer = {"reference": "ODS26-101-STR", "contact": "Julie Dubé"}
     subject, body = build_followup_email(offer, 15)
-    assert subject == "Suivi – Offre de service ODS26-101-STR"
+    assert subject == "Petit suivi concernant votre projet – ODS26-101-STR"
     assert "Bonjour Julie Dubé" in body
+    assert "J’espère que vous allez bien" in body
     assert "Ingénieur en structure et en génie civil" in body
     assert "valide pendant 30 jours" in body
     assert "fermerons le dossier" not in body
     _, final_body = build_followup_email(offer, 30)
     assert "période de validité de 30 jours" in final_body
-    assert "inactive" in final_body
+    assert "classerons simplement la demande" in final_body
     assert recommended_followup_day(3) == 3
     assert recommended_followup_day(8) == 7
     assert recommended_followup_day(12) == 10
