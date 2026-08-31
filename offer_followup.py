@@ -9,26 +9,34 @@ OPEN_STATUSES = {"In process", "Hold"}
 
 FOLLOWUP_EMAILS = {
     3: (
-        "Je me permets de faire un suivi concernant notre offre de service {reference}. "
-        "Avez-vous eu l’occasion d’en prendre connaissance? Nous demeurons disponibles pour répondre à vos questions."
+        "J’espère que vous allez bien.\n\n"
+        "Je voulais simplement revenir sur l’offre de service {reference} que je vous ai transmise récemment. "
+        "Avez-vous eu l’occasion d’en prendre connaissance?\n\n"
+        "Si vous avez des questions ou souhaitez discuter d’un point en particulier, je serai heureux d’échanger avec vous."
     ),
     7: (
-        "Nous souhaitons faire un deuxième suivi concernant notre offre de service {reference}. "
-        "N’hésitez pas à nous indiquer si vous souhaitez obtenir des précisions ou discuter de certains éléments du mandat."
+        "J’espère que vous allez bien.\n\n"
+        "Je me permets de revenir vers vous au sujet de notre offre de service {reference}. "
+        "Je souhaitais simplement savoir si vous aviez eu le temps de la consulter.\n\n"
+        "Si certains éléments du mandat méritent d’être précisés ou ajustés, n’hésitez pas à me le faire savoir."
     ),
     10: (
-        "Nous revenons vers vous concernant notre offre de service {reference}. "
-        "Pourriez-vous nous confirmer si le projet est toujours d’actualité et si vous souhaitez poursuivre avec les prochaines étapes?"
+        "J’espère que vous allez bien.\n\n"
+        "Petit suivi concernant l’offre de service {reference} transmise pour votre projet. "
+        "Lorsque vous aurez un moment, pourriez-vous me confirmer si le projet est toujours prévu?\n\n"
+        "Je reste bien entendu disponible pour répondre à vos questions ou planifier un court échange, au besoin."
     ),
     15: (
-        "Nous souhaitons effectuer un suivi concernant notre offre de service {reference}. "
-        "Nous restons disponibles pour répondre à vos questions ou discuter des prochaines étapes. "
-        "Veuillez noter que cette offre demeure valide pendant 30 jours suivant sa date d’émission."
+        "J’espère que vous allez bien.\n\n"
+        "Je reviens vers vous concernant notre offre de service {reference}. "
+        "Je comprends que ce type de décision peut demander un peu de temps; je souhaitais simplement m’assurer que vous disposez de toute l’information nécessaire.\n\n"
+        "L’offre demeure valide pendant 30 jours suivant sa date d’émission, et je reste disponible si vous souhaitez en discuter."
     ),
     30: (
-        "Nous revenons vers vous concernant notre offre de service {reference}, dont la période de validité de 30 jours est maintenant arrivée à échéance. "
-        "Si votre projet est toujours d’actualité, n’hésitez pas à nous en informer afin que nous puissions confirmer la disponibilité et, au besoin, mettre l’offre à jour. "
-        "Sans retour de votre part, nous classerons simplement la demande comme inactive pour le moment."
+        "J’espère que vous allez bien.\n\n"
+        "Je me permets un dernier suivi concernant l’offre de service {reference}, dont la période de validité de 30 jours est maintenant arrivée à échéance.\n\n"
+        "Si votre projet est toujours d’actualité, ce sera un plaisir de confirmer nos disponibilités et de mettre l’offre à jour, au besoin. "
+        "Sans nouvelles de votre part, nous classerons simplement la demande pour le moment; vous pourrez bien sûr nous recontacter lorsque le moment sera opportun."
     ),
 }
 
@@ -40,11 +48,11 @@ def build_followup_email(offer, followup_day):
     reference = str(offer.get("reference") or "votre projet").strip()
     contact = str(offer.get("contact") or "").strip()
     greeting = f"Bonjour {contact}," if contact else "Bonjour,"
-    subject = f"Suivi – Offre de service {reference}"
+    subject = f"Petit suivi concernant votre projet – {reference}"
     body = (
         f"{greeting}\n\n"
         f"{FOLLOWUP_EMAILS[day].format(reference=reference)}\n\n"
-        "Cordialement,\n\n"
+        "Bien cordialement,\n\n"
         "Arash Rohani, ing., P.Eng.\n"
         "Président – Ingénieur en structure et en génie civil\n"
         "Metra Consultation Inc.\n"
