@@ -73,6 +73,8 @@ def _client_name(data):
 
 def _service_lines(data):
     lines = data.get("service_lines") or []
+    if isinstance(lines, str):
+        lines = [part for part in lines.splitlines() if part.strip()]
     if not lines:
         title = str(data.get("project_title") or "").strip()
         service = str(data.get("service") or "").strip()
@@ -85,7 +87,15 @@ def _service_lines(data):
             lines = [part.strip() for part in re.split(r"[;\n]+", desc) if part.strip()]
         else:
             lines = ["Services d’ingénierie professionnels"]
-    return lines[:5]
+    cleaned = []
+    for line in lines:
+        compact = re.sub(r"\s+", " ", str(line)).strip(" •;.")
+        if not compact:
+            continue
+        if len(compact) > 350:
+            compact = compact[:347].rstrip() + "…"
+        cleaned.append(compact)
+    return cleaned[:5]
 
 
 def _project_reference(data):
@@ -223,10 +233,15 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
             "", "", "", "",
         ],
     ]
+    invoice_lines = _service_lines(data)
+    estimated_text_lines = sum(
+        max(1, (len(str(line)) + 54) // 55) for line in invoice_lines
+    )
+    service_row_height = max(4.7, min(8.2, 1.1 + 0.5 * estimated_text_lines)) * cm
     services = Table(
         table_data,
         colWidths=[1.9 * cm, 9.55 * cm, 1.05 * cm, 2.75 * cm, 2.75 * cm],
-        rowHeights=[0.62 * cm, 4.7 * cm, 0.62 * cm],
+        rowHeights=[0.62 * cm, service_row_height, 0.62 * cm],
     )
     services.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#B4CAE2")),
