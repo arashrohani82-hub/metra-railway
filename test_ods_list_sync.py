@@ -67,3 +67,20 @@ def test_project_conversion_marks_offer_accepted():
     assert sheet["G3"].value == "Accept"
     assert sheet["H3"].value == 2800
     assert sheet["K3"].value == accepted_at
+
+
+def test_missing_workbook_calculation_settings_do_not_break_sync():
+    workbook = workbook_with_ods_sheet()
+    workbook.calculation = None
+    data = {
+        "odsNum": "ODS26-109-VDB-Test",
+        "price": 1000,
+        "name": "Test Client",
+        "email": "test@example.com",
+        "email_sent_at": "2026-08-31T13:35:00",
+    }
+
+    row = app.upsert_ods_list_workbook(workbook, data, "In process")
+
+    assert row == 3
+    assert workbook["data 2026"]["G3"].value == "In process"
