@@ -311,6 +311,7 @@ def show_email_preview(chat_id, uid, day):
         chat_id,
         f"✉️ Aperçu du courriel\n\nÀ : {recipient}\nObjet : {subject}\n\n{body}",
         [
+            [{"text": "🧪 Envoyer un test à moi-même", "callback_data": "of_email_test"}],
             [{"text": "✅ Confirmer et envoyer", "callback_data": "of_email_send"}],
             [{"text": "✏️ Choisir un autre modèle", "callback_data": "of_email_menu"}],
             [{"text": "❌ Annuler", "callback_data": "of_email_cancel"}],
@@ -347,7 +348,7 @@ def send_followup_email(payload):
         raise RuntimeError(f"Microsoft 365 a refusé l’envoi ({response.status_code})")
 
 
-def do_send_followup_email(chat_id, uid):
+def do_send_followup_email(chat_id, uid, test_only=False):
     session = _session(uid)
     payload = dict(session.get("pending_offer_followup_email") or {})
     if not payload:
@@ -359,12 +360,29 @@ def do_send_followup_email(chat_id, uid):
     session["offer_followup_email_sending"] = True
     _save_session(uid, session)
     try:
-        send_followup_email(payload)
-        STORE.mark_followed(payload["reference"], local_now().date(), payload["day"])
+        outgoing = dict(payload)
+        if test_only:
+            outgoing["recipient"] = legacy.microsoft_email_config()["EMAIL_SENDER"]
+            outgoing["subject"] = "[TEST] " + outgoing["subject"]
+        send_followup_email(outgoing)
         session = _session(uid)
-        session.pop("pending_offer_followup_email", None)
         session["offer_followup_email_sending"] = False
+        if not test_only:
+            STORE.mark_followed(payload["reference"], local_now().date(), payload["day"])
+            session.pop("pending_offer_followup_email", None)
         _save_session(uid, session)
+        if test_only:
+            legacy.tg(
+                chat_id,
+                f"🧪 Courriel test envoyé à {outgoing['recipient']}.\n"
+                "Vérifiez-le, puis confirmez séparément l’envoi réel au client.",
+                [
+                    [{"text": "✅ Envoyer maintenant au client", "callback_data": "of_email_send"}],
+                    [{"text": "✏️ Choisir un autre modèle", "callback_data": "of_email_menu"}],
+                    [{"text": "❌ Annuler", "callback_data": "of_email_cancel"}],
+                ],
+            )
+            return
         message = (
             f"✅ Courriel de suivi {payload['day']} jours envoyé à {payload['recipient']}."
         )
@@ -438,6 +456,8 @@ def handle_update_offer_followup(data):
             show_email_preview(chat_id, uid, cdata.split(":", 1)[1])
         elif cdata == "of_email_send":
             legacy.executor.submit(do_send_followup_email, chat_id, uid)
+        elif cdata == "of_email_test":
+            legacy.executor.submit(do_send_followup_email, chat_id, uid, True)
         elif cdata == "of_email_cancel":
             session = _session(uid)
             session.pop("pending_offer_followup_email", None)
