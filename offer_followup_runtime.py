@@ -486,10 +486,27 @@ def show_email_preview(chat_id, uid, day):
 
 
 def _followup_html(body):
+    raw = str(body or "").strip()
+    closing = "Bien cordialement,"
+    message, _separator, _signature = raw.partition(closing)
+    paragraphs = [part.strip() for part in message.split("\n\n") if part.strip()]
+    rendered = "".join(
+        f'<p style="margin:0 0 16px 0">{html.escape(part).replace(chr(10), "<br>")}</p>'
+        for part in paragraphs
+    )
     return (
-        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.5;color:#1f1f1f">'
-        + html.escape(str(body or "")).replace("\n", "<br>")
-        + "</div>"
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.55;color:#252525;max-width:680px">'
+        f'{rendered}'
+        '<p style="margin:22px 0 16px 0">Bien cordialement,</p>'
+        '<div style="border-left:3px solid #f5a400;padding:2px 0 2px 12px">'
+        '<div style="font-weight:700;color:#162b67">Arash Rohani, ing., P.Eng.</div>'
+        '<div>Président – Ingénieur en structure et en génie civil</div>'
+        '<div style="font-weight:700">Metra Consultation Inc.</div>'
+        '<div style="margin-top:4px">'
+        '<a href="mailto:arash.rohani@metrastructure.ca" style="color:#225ea8;text-decoration:none">arash.rohani@metrastructure.ca</a>'
+        ' &nbsp;|&nbsp; '
+        '<a href="tel:+14388674131" style="color:#225ea8;text-decoration:none">(438) 867-4131</a>'
+        '</div></div></div>'
     )
 
 
