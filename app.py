@@ -683,7 +683,7 @@ def _clean_service_line(value):
 
 
 def _build_service_desc(data):
-    """Up to 5 complete technical lines for the PDF table cell."""
+    """Up to 4 compact technical lines for the PDF table cell."""
     # Priority: service_lines from extraction
     raw = data.get('service_lines') or []
     if not raw:
@@ -695,6 +695,8 @@ def _build_service_desc(data):
         compact_line = _clean_service_line(line)
         if not compact_line:
             continue
+        if len(compact_line) > 140:
+            compact_line = compact_line[:140].rsplit(' ', 1)[0].rstrip(' ,;:–-')
         result.append('• ' + compact_line + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
