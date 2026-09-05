@@ -70,6 +70,21 @@ def test_project_conversion_marks_offer_accepted():
     assert sheet["K3"].value == accepted_at
 
 
+def test_project_conversion_records_project_folder_for_guardian_sync():
+    workbook = workbook_with_ods_sheet()
+    data = {
+        "odsNum": "ODS26-100-STR-Plans-structuraux",
+        "project_folder": "P26-031-STR-Plans-structuraux",
+        "price": 4200,
+        "name": "Client Test",
+    }
+    row = app.upsert_ods_list_workbook(workbook, data, "Accept")
+    sheet = workbook["data 2026"]
+    headers = {str(cell.value or "").strip(): cell.column for cell in sheet[1]}
+
+    assert sheet.cell(row, headers["Project Code"]).value == data["project_folder"]
+
+
 def test_missing_calculation_properties_are_repaired_before_save():
     workbook = workbook_with_ods_sheet()
     workbook.calculation = None

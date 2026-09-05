@@ -683,7 +683,7 @@ def _clean_service_line(value):
 
 
 def _build_service_desc(data):
-    """Up to 5 complete technical lines for the PDF table cell."""
+    """Up to 4 compact technical lines for the PDF table cell."""
     # Priority: service_lines from extraction
     raw = data.get('service_lines') or []
     if not raw:
@@ -691,10 +691,12 @@ def _build_service_desc(data):
         desc = data.get('desc') or data.get('service') or ''
         raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
     result = []
-    for line in raw[:5]:
+    for line in raw[:4]:
         compact_line = _clean_service_line(line)
         if not compact_line:
             continue
+        if len(compact_line) > 140:
+            compact_line = compact_line[:140].rsplit(' ', 1)[0].rstrip(' ,;:–-')
         result.append('• ' + compact_line + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
@@ -1358,6 +1360,17 @@ def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=No
         for cell in ws[1]
         if cell.value is not None
     }
+    project_code_label = 'Project Code'
+    project_code_col = headers.get(project_code_label)
+    if not project_code_col:
+        project_code_col = ws.max_column + 1
+        source_header = ws.cell(1, max(1, project_code_col - 1))
+        target_header = ws.cell(1, project_code_col)
+        target_header.value = project_code_label
+        if source_header.has_style:
+            target_header._style = copy.copy(source_header._style)
+        target_header.alignment = copy.copy(source_header.alignment)
+        target_header.protection = copy.copy(source_header.protection)
     columns = {}
     for key, label in ODS_LIST_HEADERS.items():
         col = headers.get(label.strip())
@@ -1405,6 +1418,8 @@ def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=No
     if is_new or contact:
         ws.cell(target_row, columns['contact']).value = contact
     ws.cell(target_row, columns['accepted_at']).value = event_date if accepted else None
+    if accepted and data.get('project_folder'):
+        ws.cell(target_row, project_code_col).value = str(data['project_folder']).strip()
     if is_new or email:
         ws.cell(target_row, columns['email']).value = email
     ws.cell(target_row, columns['date']).number_format = 'yyyy-mm-dd'
