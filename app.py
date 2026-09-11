@@ -471,15 +471,41 @@ def tg(chat_id, text, keyboard=None, reply_markup=None):
         payload['reply_markup'] = reply_markup
     elif keyboard:
         payload['reply_markup'] = {'inline_keyboard': keyboard}
-    try:
-        r2 = req.post(
-            f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-            json=payload, timeout=15)
-        logger.info(f"tg sent: {r2.status_code} to {chat_id}")
-        if r2.status_code != 200:
+    # Telegram can briefly return 429 when two workflow messages are sent back
+    # to back (for example an acknowledgement followed by the next question).
+    # A dropped prompt leaves the saved session waiting for input while the user
+    # sees no question, so retry transient failures instead of silently stopping.
+    for attempt in range(3):
+        try:
+            r2 = req.post(
+                f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                json=payload, timeout=15)
+            logger.info(
+                "tg sent: %s to %s (attempt %s)",
+                r2.status_code, chat_id, attempt + 1,
+            )
+            if r2.status_code == 200:
+                return True
+
             logger.error(f"tg response: {r2.text[:200]}")
-    except Exception as e:
-        logger.error(f"tg error: {e}")
+            if r2.status_code == 429:
+                try:
+                    retry_after = float(
+                        r2.json().get('parameters', {}).get('retry_after', 1)
+                    )
+                except Exception:
+                    retry_after = 1
+                time.sleep(min(max(retry_after, 1), 5))
+                continue
+            if r2.status_code >= 500:
+                time.sleep(attempt + 1)
+                continue
+            return False
+        except Exception as e:
+            logger.error("tg error (attempt %s): %s", attempt + 1, e)
+            if attempt < 2:
+                time.sleep(attempt + 1)
+    return False
 
 def tg_doc(chat_id, buf, filename, caption):
     try:
@@ -2354,7 +2380,9 @@ def handle_update(data):
                         d['waiting_field'] = None
                         user_data[uid] = d
                         save_user_data()
-                        tg(chat_id, "✅ Description sélectionnée.")
+                        # Continue directly with the next actionable question.
+                        # Sending a separate acknowledgement immediately before
+                        # it can trigger Telegram throttling and drop the prompt.
                         ask_next_missing(chat_id, uid)
             elif cdata == 'nouveau':
                 user_data.pop(uid, None)
