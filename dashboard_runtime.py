@@ -1,4 +1,6 @@
 import io
+import hmac
+import os
 import logging
 from datetime import datetime
 
@@ -7,6 +9,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import openpyxl
 import requests
+from flask import jsonify, request
 
 import invoice_control_runtime as control
 
@@ -402,3 +405,31 @@ def handle_update_dashboard(data):
 
 legacy.handle_update = handle_update_dashboard
 logger.info('ODS MANAGEMENT AND MARKETING DASHBOARD ACTIVE')
+
+
+@app.get('/router/company-metrics')
+def router_company_metrics():
+    """Private YTD offer and conversion KPIs for the CEO dashboard."""
+    secret = os.environ.get('ROUTER_SHARED_SECRET', '').strip()
+    supplied = request.headers.get('X-Router-Secret', '')
+    if not secret or not hmac.compare_digest(supplied, secret):
+        return jsonify({'ok': False, 'error': 'forbidden'}), 403
+    try:
+        metrics = dashboard_metrics(_load_workbook(), 'year', False)
+        return jsonify({
+            'ok': True,
+            'period': 'year',
+            'period_label': metrics.get('period_label'),
+            'offers': metrics.get('offers', 0),
+            'quoted': round(float(metrics.get('quoted') or 0), 2),
+            'accepted_projects': metrics.get('accepted', 0),
+            'contracted': round(float(metrics.get('revenue') or 0), 2),
+            'conversion_rate': round(float(metrics.get('conversion') or 0), 4),
+            'pipeline': (metrics.get('statuses') or {}).get('In process', 0),
+            'on_hold': (metrics.get('statuses') or {}).get('Hold', 0),
+            'refused': (metrics.get('statuses') or {}).get('Refused', 0),
+            'closed': (metrics.get('statuses') or {}).get('Closed', 0),
+        })
+    except Exception as exc:
+        logger.exception('CEO company metrics failed')
+        return jsonify({'ok': False, 'error': 'metrics_unavailable', 'detail': str(exc)[:180]}), 503
