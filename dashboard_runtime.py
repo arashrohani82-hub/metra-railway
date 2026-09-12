@@ -415,7 +415,20 @@ def router_company_metrics():
     if not secret or not hmac.compare_digest(supplied, secret):
         return jsonify({'ok': False, 'error': 'forbidden'}), 403
     try:
-        metrics = dashboard_metrics(_load_workbook(), 'year', False)
+        workbook = _load_workbook()
+        metrics = dashboard_metrics(workbook, 'year', False)
+        current_year = datetime.now().year
+        sales_monthly = []
+        for month in range(1, 13):
+            key = f'{current_year:04d}-{month:02d}'
+            item = dashboard_metrics(workbook, key, False)
+            sales_monthly.append({
+                'month': key,
+                'offers': int(item.get('offers') or 0),
+                'quoted': round(float(item.get('quoted') or 0), 2),
+                'accepted_projects': int(item.get('accepted') or 0),
+                'contracted': round(float(item.get('revenue') or 0), 2),
+            })
         return jsonify({
             'ok': True,
             'period': 'year',
@@ -429,6 +442,7 @@ def router_company_metrics():
             'on_hold': (metrics.get('statuses') or {}).get('Hold', 0),
             'refused': (metrics.get('statuses') or {}).get('Refused', 0),
             'closed': (metrics.get('statuses') or {}).get('Closed', 0),
+            'sales_monthly': sales_monthly,
         })
     except Exception as exc:
         logger.exception('CEO company metrics failed')
