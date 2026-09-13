@@ -49,18 +49,12 @@ def get_next_offer_number_max_plus_one():
             if match:
                 numbers.append(int(match.group(1)))
     except Exception as exc:
-        # Renaming a Microsoft 365 mailbox can temporarily make the configured
-        # Graph user unavailable. Number suggestion must not stop the entire
-        # Telegram workflow; the persistent offer history is a safe fallback.
         source = 'local history fallback'
         numbers = _numbers_from_local_history(year)
         logger.exception(
             'ODS OneDrive numbering unavailable; using local history: %s', exc
         )
 
-    # The current production series has reached ODS26-098. Keep a configurable
-    # floor so a temporary Graph/OneDrive outage can never reset numbering to
-    # the legacy bootstrap value (081). Local history advances it from there.
     configured_floor = int(os.environ.get('ODS_NUMBER_FLOOR', '98'))
     latest = max(numbers + [configured_floor])
     next_number = latest + 1
@@ -74,3 +68,6 @@ def get_next_offer_number_max_plus_one():
 
 legacy.get_next_project_num = get_next_offer_number_max_plus_one
 logger.info('ODS NUMBERING POLICY: HIGHEST ARCHIVED NUMBER + 1')
+
+# Load the lead-priority layer last so it can wrap the complete follow-up flow.
+import offer_potential_runtime  # noqa: E402,F401
