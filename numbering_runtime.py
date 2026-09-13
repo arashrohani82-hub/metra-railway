@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 
-import offer_followup_runtime as guarded
+import followup_persistence_runtime as guarded
 
 app = guarded.app
 legacy = guarded.legacy
