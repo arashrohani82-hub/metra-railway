@@ -1,6 +1,8 @@
 name: BrightTale Final Audio Mix
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   push:
     branches:
       - main
@@ -66,7 +68,7 @@ jobs:
           ffmpeg -y \
             -i video.mp4 -i music.mp3 -i n1.mp3 -i n2.mp3 -i n3.mp3 -i n4.mp3 -i n5.mp3 \
             -i arvin1.wav -i arvin2.mp3 -i bully.wav -i librarian.mp3 -i mom.wav \
-            -filter_complex "[1:a]atempo=0.9868,volume=0.14,afade=t=out:st=45.10:d=0.27[m];[2:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=350|350[a1];[3:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=5550|5550[a2];[4:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=10650|10650[a3];[5:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=15350|15350[a4];[6:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=40400|40400[a5];[7:a]loudnorm=I=-16:TP=-2:LRA=8,adelay=20500|20500[ar1];[8:a]asetrate=44100*1.12,aresample=44100,atempo=0.892857,loudnorm=I=-16:TP=-2:LRA=8,adelay=25350|25350[ar2];[9:a]loudnorm=I=-16:TP=-2:LRA=8,adelay=18000|18000[bu];[10:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=30450|30450[li];[11:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=35550|35550[mo];[m][a1][a2][a3][a4][a5][ar1][ar2][bu][li][mo]amix=inputs=11:duration=longest:dropout_transition=0,alimiter=limit=0.95,atrim=0:45.37[outa]" \
+            -filter_complex "[1:a]atempo=0.9868,volume=0.14,afade=t=out:st=45.10:d=0.27[m];[2:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=350|350[a1];[3:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=5550|5550[a2];[4:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=10650|10650[a3];[5:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=15350|15350[a4];[6:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=40400|40400[a5];[7:a]asetrate=44100*1.08,aresample=44100,atempo=0.925926,loudnorm=I=-16:TP=-2:LRA=8,adelay=20500|20500[ar1];[8:a]asetrate=44100*1.22,aresample=44100,atempo=0.819672,loudnorm=I=-16:TP=-2:LRA=8,adelay=25350|25350[ar2];[9:a]loudnorm=I=-16:TP=-2:LRA=8,adelay=18000|18000[bu];[10:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=30450|30450[li];[11:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=35550|35550[mo];[m][a1][a2][a3][a4][a5][ar1][ar2][bu][li][mo]amix=inputs=11:duration=longest:dropout_transition=0,alimiter=limit=0.95,atrim=0:45.37[outa]" \
             -map 0:v:0 -map "[outa]" -c:v copy -c:a aac -b:a 192k -ar 48000 -ac 2 \
             -t 45.37 -movflags +faststart BrightTale-Kids-Library-Story-Final.mp4
 
