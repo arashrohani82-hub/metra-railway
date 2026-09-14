@@ -3,6 +3,9 @@ name: BrightTale Final Audio Mix
 on:
   schedule:
     - cron: '*/5 * * * *'
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
