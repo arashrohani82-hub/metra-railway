@@ -1,0 +1,83 @@
+name: BrightTale Final Audio Mix
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg curl
+
+      - name: Download video scenes and audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          cd work
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928428832548978692/A_warm_5_second_vertical_children_s_animation__The_mother_gently_holds_the_library_door_open_and_tak.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiM2RhOTc2ZmQwZjBjMmY3ZSIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTU2NTgyMX0.WCrn32sS_5CxLWSrKMUp-RJGNDXT6cG313cpjwX2Suc' -o scene1.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928431277916291102/A_gentle_5_second_vertical_children_s_animation__Five_year_old_Arvin_looks_along_the_bookshelf__noti.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiZjc3YWM5ODg1MTM2NzdmYSIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTQ5NzczNn0.FP7LfNmyvmSaPT4NRtSTZc6xZ5WHNg6UyDckf3_CbK8' -o scene2.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928432868954218585/Gentle_five_second_vertical_children_s_animation__Arvin_remains_seated_cross_legged_on_the_colorful_.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiZWQzMjFjOWIzMTgzNGJjNCIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTUwMzUxNX0.3Veit_PZW2FSQLJd9iaQcxLRMv-84iXTuw301Unv1m4' -o scene3.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928433916922044417/Five_second_vertical_children_s_story_animation_continuing_this_exact_frame__The_curly_haired_boy_gi.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiN2I3YjExNWUyZjAxNjI1ZiIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTU2Njk0Mn0.WoW01k9H8GZNKMdM32aAcx27K8TAb2hresyFdpZ_j-Q' -o scene4.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928434959990923273/Five_second_vertical_children_s_story_animation__Arvin_stands_firmly_at_a_safe_distance__keeps_his_o.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiMTBlNjk5OGM2ZDNhODdkOSIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTUwMDA0NH0.8a3CYB6woWjHw8FgKgB-NzfWSG2tLeE_E43BcAoJZKA' -o scene5.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928436900070424640/Five_second_vertical_children_s_story_animation_continuing_this_exact_keyframe__Five_year_old_Arvin_.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiOWJkODI1ZWVkM2FkZDRlNyIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTUxMzk2Nn0.dbRHID2a6s9Jz0Tq4m7yVfip--3I7OHQ-KQM7BGzPYM' -o scene6.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928438489644531787/Five_second_vertical_children_s_story_animation_continuing_this_exact_frame__The_kind_librarian_calm.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiNDBmNzgzNzgyMDcxNGU2NiIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTU0MzY3Mn0.o8E9vsoneE5U4D-LQGjaNxPHUU1ifTjXlF-ddiuthGA' -o scene7.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928440643532230666/Five_second_vertical_children_s_story_animation_continuing_this_exact_checkout_frame__The_kind_libra.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiN2I2NGM0YWVkN2FhNzcxMyIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTU3NDMxOH0.-DPuYij9KpxVN7EpKxVghS32yxr111JZxaQBkoUgx7A' -o scene8.mp4
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/kling-o3-pro/928443061678510162/Five_second_vertical_final_scene_of_a_warm_children_s_animated_story__Arvin_and_his_mother_walk_slow.mp4?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiNTc2Y2RlZGJmMzY3NWU0ZCIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTU0MzEzMX0.2-IdO99CAZSviRq5Jr1R098skS5rW15S5kqCWhVCNKg' -o scene9.mp4
+
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/lyria3-pro/7bd1bff9-5ab7-438d-8444-fa17b5f86f76/BrightTale_Library_Story_Background.mp3?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiM2M2YTI0NDBlMDlmMzcxOCIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTU0NzQ1Nn0.t77FcJBBZGuaWUF5Zt1L2qANREQg7l1EjuNkkopKSnM' -o music.mp3
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/text_to_speech/e49ae7b8-06fd-4588-aaf3-a9d5cfb2c2ad/BrightTale_Narrator_Opening.mp3?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiMzg3MjNhOGU4YzNkZGIzYiIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTQ5NjU5MH0.vuh6JQDyr2DIqWaPb8hm-AXKlgI-A5fzYoGoo8u6s1I' -o n1.mp3
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa6781/rdD6Ek-sqFxOqvz4MskGH_gemini_31_flash_tts_output.wav' -o n2.wav
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa6769/VXFGyelXrAcP5aXSfIdGg_gemini_31_flash_tts_output.wav' -o n3.wav
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa676b/5Hw-nrlYavEJJmk6-8lt5_gemini_31_flash_tts_output.wav' -o n4.wav
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa6787/06dwZk8i70oe7tyUcCO8d_gemini_31_flash_tts_output.wav' -o n5.wav
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa677d/_rWkncg4IKxz6DKjpl8Th_gemini_31_flash_tts_output.wav' -o arvin1.wav
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/text_to_speech/ccb5c9a0-a323-413d-8246-78b308ee141a/BrightTale_Arvin_Help_Line.mp3?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiYjk4MjBkZTI3MWZmZDhmOSIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTUyNDE5NH0.IBFAeOH-oQ7fLeceRqj4rh9_2ZhsXEcYq8kzhtVfVtY' -o arvin2.mp3
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa676f/b0hllnGHv0_M2pt0ea_q__gemini_31_flash_tts_output.wav' -o bully.wav
+          curl -L --fail --retry 3 'https://dnznrvs05pmza.cloudfront.net/text_to_speech/28a45c2b-49f7-4790-9c6e-3360016ee32f/BrightTale_Librarian_Line.mp3?_jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJrZXlIYXNoIjoiZmViNzQ5ZGNjMWE0ZDE4MCIsImJ1Y2tldCI6InJ1bndheS10YXNrLWFydGlmYWN0cyIsInN0YWdlIjoicHJvZCIsImV4cCI6MTc4OTUxMTI2MH0.0mqvi09CRaRD4p1qmzxUE86GfE7snNOz79B9rpdF0Xo' -o librarian.mp3
+          curl -L --fail --retry 3 'https://v3b.fal.media/files/b/0aaa6771/KYP3CFENEVLaRygzIaUHL_gemini_31_flash_tts_output.wav' -o mom.wav
+
+      - name: Join the nine scenes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          ffmpeg -y \
+            -i scene1.mp4 -i scene2.mp4 -i scene3.mp4 -i scene4.mp4 -i scene5.mp4 \
+            -i scene6.mp4 -i scene7.mp4 -i scene8.mp4 -i scene9.mp4 \
+            -filter_complex "[0:v]scale=1080:1916,fps=24,setsar=1[v0];[1:v]scale=1080:1916,fps=24,setsar=1[v1];[2:v]scale=1080:1916,fps=24,setsar=1[v2];[3:v]scale=1080:1916,fps=24,setsar=1[v3];[4:v]scale=1080:1916,fps=24,setsar=1[v4];[5:v]scale=1080:1916,fps=24,setsar=1[v5];[6:v]scale=1080:1916,fps=24,setsar=1[v6];[7:v]scale=1080:1916,fps=24,setsar=1[v7];[8:v]scale=1080:1916,fps=24,setsar=1[v8];[v0][v1][v2][v3][v4][v5][v6][v7][v8]concat=n=9:v=1:a=0[v]" \
+            -map "[v]" -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -movflags +faststart video.mp4
+
+      - name: Mix natural voices and continuous music
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          ffmpeg -y \
+            -i video.mp4 -i music.mp3 -i n1.mp3 -i n2.wav -i n3.wav -i n4.wav -i n5.wav \
+            -i arvin1.wav -i arvin2.mp3 -i bully.wav -i librarian.mp3 -i mom.wav \
+            -filter_complex "[1:a]atempo=0.9868,volume=0.14,afade=t=out:st=45.10:d=0.27[m];[2:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=350|350[a1];[3:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=5550|5550[a2];[4:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=10650|10650[a3];[5:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=15350|15350[a4];[6:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=40400|40400[a5];[7:a]loudnorm=I=-16:TP=-2:LRA=8,adelay=20500|20500[ar1];[8:a]asetrate=44100*1.12,aresample=44100,atempo=0.892857,loudnorm=I=-16:TP=-2:LRA=8,adelay=25350|25350[ar2];[9:a]loudnorm=I=-16:TP=-2:LRA=8,adelay=18000|18000[bu];[10:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=30450|30450[li];[11:a]loudnorm=I=-17:TP=-2:LRA=8,adelay=35550|35550[mo];[m][a1][a2][a3][a4][a5][ar1][ar2][bu][li][mo]amix=inputs=11:duration=longest:dropout_transition=0,alimiter=limit=0.95,atrim=0:45.37[outa]" \
+            -map 0:v:0 -map "[outa]" -c:v copy -c:a aac -b:a 192k -ar 48000 -ac 2 \
+            -t 45.37 -movflags +faststart BrightTale-Kids-Library-Story-Final.mp4
+
+      - name: Verify output
+        run: |
+          ffprobe -v error -show_entries format=duration -show_entries stream=codec_name,width,height -of json work/BrightTale-Kids-Library-Story-Final.mp4
+
+      - name: Upload final video
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrightTale-Kids-Library-Story-Final
+          path: work/BrightTale-Kids-Library-Story-Final.mp4
+          if-no-files-found: error
+          retention-days: 7
