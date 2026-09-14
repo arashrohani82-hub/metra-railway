@@ -1,0 +1,43 @@
+{
+  "name": "BrightTale Kids",
+  "handle": "@brighttalekids",
+  "tagline": "Little stories. Big life lessons.",
+  "language": "English",
+  "audience": "Parents and children ages 4-7",
+  "content_pillars": [
+    "friendship",
+    "emotions",
+    "confidence",
+    "school",
+    "safety",
+    "kindness",
+    "routines"
+  ],
+  "formats": {
+    "primary": "9:16 vertical short video",
+    "youtube": "Shorts",
+    "instagram": "Reels",
+    "tiktok": "Vertical video"
+  },
+  "publishing_policy": {
+    "creator_approval_required": true,
+    "youtube_default_privacy": "unlisted",
+    "youtube_made_for_kids": true,
+    "declare_ai_generated_content": true,
+    "avoid_child_personal_identifiers": true
+  },
+  "channels": {
+    "youtube": {
+      "display_name": "BrightTale Kids",
+      "handle_target": "@brighttalekids"
+    },
+    "instagram": {
+      "display_name": "BrightTale Kids",
+      "handle_target": "@brighttalekids"
+    },
+    "tiktok": {
+      "display_name": "BrightTale Kids",
+      "handle_target": "@brighttalekids"
+    }
+  }
+}
