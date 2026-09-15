@@ -71,3 +71,9 @@ logger.info('ODS NUMBERING POLICY: HIGHEST ARCHIVED NUMBER + 1')
 
 # Load the lead-priority layer last so it can wrap the complete follow-up flow.
 import offer_potential_runtime  # noqa: E402,F401
+
+# The household assistant is a separate Telegram bot sharing this web process.
+# It remains completely inactive until HOUSEHOLD_BOT_TOKEN is configured.
+from household_bot import init_household_bot  # noqa: E402
+
+init_household_bot(app)

@@ -35,3 +35,18 @@ The invoice number is separate from the project number. Example: invoice 49 for 
 `P26-030-RES-...` is saved as `FAC P26-049-RES.pdf`.
 
 Deployment refresh: invoice workflow enabled after project creation.
+
+## Household shopping bot
+
+The same Railway web process can host a separate, private Telegram bot for
+household shopping and consumption tracking. It is inactive unless
+`HOUSEHOLD_BOT_TOKEN` is set. Configure these Railway variables:
+
+- `HOUSEHOLD_BOT_TOKEN`
+- `HOUSEHOLD_WEBHOOK_SECRET`
+- `HOUSEHOLD_SETUP_SECRET` (falls back to `SETUP_SECRET`)
+- `HOUSEHOLD_PUBLIC_URL` (falls back to `PUBLIC_URL`)
+- `HOUSEHOLD_ALLOWED_TELEGRAM_USER_IDS` (falls back to the main allow-list)
+
+The bot registers `/webhook/household` automatically after deployment and
+stores its independent data at `/data/household_purchases.json`.
