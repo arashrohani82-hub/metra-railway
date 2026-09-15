@@ -34,7 +34,7 @@ class HouseholdBotTests(unittest.TestCase):
         store.record_purchase("dairy-0", 2)
         payload = store.load()
         self.assertNotIn("dairy-0", payload["shopping"])
-        self.assertEqual(payload["purchases"][0]["name"], "شیر")
+        self.assertEqual(payload["purchases"][0]["name"], "Milk")
         self.assertEqual(payload["purchases"][0]["quantity"], 2)
 
     def test_consumption_interval_and_due_date(self):

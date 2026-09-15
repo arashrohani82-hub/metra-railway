@@ -49,33 +49,33 @@ DATA_FILE = DATA_DIR / "household_purchases.json"
 
 
 CATEGORIES = {
-    "dairy": ("🥛 لبنیات و صبحانه", [
-        "شیر", "ماست", "پنیر", "کره", "تخم‌مرغ", "نان", "غلات صبحانه",
+    "dairy": ("🥛 Dairy & Breakfast", [
+        "Milk", "Yogurt", "Cheese", "Butter", "Eggs", "Bread", "Breakfast cereal",
     ]),
-    "produce": ("🍎 میوه و سبزیجات", [
-        "موز", "سیب", "پرتقال", "توت‌فرنگی", "خیار", "گوجه", "سیب‌زمینی",
-        "پیاز", "سبزیجات", "سالاد",
+    "produce": ("🍎 Fruit & Vegetables", [
+        "Bananas", "Apples", "Oranges", "Strawberries", "Cucumbers", "Tomatoes", "Potatoes",
+        "Onions", "Vegetables", "Salad",
     ]),
-    "protein": ("🍗 گوشت و پروتئین", [
-        "مرغ", "گوشت", "ماهی", "تن ماهی", "حبوبات",
+    "protein": ("🍗 Meat & Protein", [
+        "Chicken", "Beef", "Fish", "Tuna", "Legumes",
     ]),
-    "pantry": ("🧺 مواد غذایی", [
-        "برنج", "ماکارونی", "روغن", "آرد", "شکر", "نمک", "قهوه", "چای",
-        "رب گوجه", "دستمال سفره",
+    "pantry": ("🧺 Pantry", [
+        "Rice", "Pasta", "Cooking oil", "Flour", "Sugar", "Salt", "Coffee", "Tea",
+        "Tomato paste", "Napkins",
     ]),
-    "drinks": ("🧃 نوشیدنی", [
-        "آب معدنی", "آبمیوه", "نوشابه", "آب گازدار",
+    "drinks": ("🧃 Drinks", [
+        "Bottled water", "Juice", "Soft drinks", "Sparkling water",
     ]),
-    "cleaning": ("🧽 نظافت خانه", [
-        "مایع ظرفشویی", "قرص ماشین ظرفشویی", "مایع لباسشویی", "نرم‌کننده لباس",
-        "مایع دستشویی", "پاک‌کننده سطوح", "کیسه زباله", "دستمال کاغذی",
-        "دستمال توالت",
+    "cleaning": ("🧽 Home Cleaning", [
+        "Dish soap", "Dishwasher tablets", "Laundry detergent", "Fabric softener",
+        "Hand soap", "Surface cleaner", "Garbage bags", "Paper towels",
+        "Toilet paper",
     ]),
-    "personal": ("🧴 بهداشت شخصی", [
-        "شامپو", "صابون", "خمیردندان", "مسواک", "دئودورانت", "تیغ اصلاح",
+    "personal": ("🧴 Personal Care", [
+        "Shampoo", "Soap", "Toothpaste", "Toothbrushes", "Deodorant", "Razors",
     ]),
-    "arvin": ("🧒 وسایل آروین", [
-        "میان‌وعده مدرسه", "آبمیوه آروین", "دستمال مرطوب", "لوازم مدرسه",
+    "arvin": ("🧒 Arvin", [
+        "School snacks", "Arvin's juice", "Wet wipes", "School supplies",
     ]),
 }
 
@@ -200,14 +200,14 @@ def consumption_stats(payload, today=None):
 def _main_menu():
     return {
         "keyboard": [
-            [{"text": "🛒 لیست خرید"}, {"text": "➕ افزودن کالا"}],
-            [{"text": "✅ ثبت خرید"}, {"text": "⚠️ رو به اتمام"}],
-            [{"text": "📊 روند مصرف"}, {"text": "📜 تاریخچه خرید"}],
-            [{"text": "🏠 منوی اصلی"}],
+            [{"text": "🛒 Shopping List"}, {"text": "➕ Add Items"}],
+            [{"text": "✅ Record Purchase"}, {"text": "⚠️ Running Low"}],
+            [{"text": "📊 Consumption Trends"}, {"text": "📜 Purchase History"}],
+            [{"text": "🏠 Main Menu"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
-        "input_field_placeholder": "یکی از دکمه‌ها را انتخاب کنید…",
+        "input_field_placeholder": "Choose a button…",
     }
 
 
@@ -223,7 +223,7 @@ def _category_keyboard(action="category"):
         for key, (label, _) in items[index:index + 2]:
             row.append({"text": label, "callback_data": f"{action}:{key}"})
         rows.append(row)
-    rows.append([{"text": "⬅️ بازگشت", "callback_data": "home"}])
+    rows.append([{"text": "⬅️ Back", "callback_data": "home"}])
     return _inline(rows)
 
 
@@ -263,16 +263,16 @@ def _show_home(chat_id):
     due = sum(1 for item_id, row in stats.items() if row["due"] and item_id not in payload["shopping"])
     _send(
         chat_id,
-        "🏠 مدیریت خرید خانه\n\n"
-        f"🛒 {count} قلم در لیست خرید\n"
-        f"⚠️ {due} قلم احتمالاً رو به اتمام\n\n"
-        "یک گزینه را انتخاب کنید:",
+        "🏠 Home Shopping Manager\n\n"
+        f"🛒 {count} item(s) on the shopping list\n"
+        f"⚠️ {due} item(s) may be running low\n\n"
+        "Choose an option:",
         _main_menu(),
     )
 
 
 def _show_categories(chat_id):
-    _send(chat_id, "دسته‌بندی کالا را انتخاب کنید:", _category_keyboard())
+    _send(chat_id, "Choose a category:", _category_keyboard())
 
 
 def _show_catalog(chat_id, category):
@@ -291,24 +291,24 @@ def _show_catalog(chat_id, category):
             "text": prefix + item["name"],
             "callback_data": f"add:{item_id}",
         }])
-    rows.append([{"text": "⬅️ دسته‌بندی‌ها", "callback_data": "categories"}])
-    _send(chat_id, f"{category_info[0]}\nبرای افزودن روی کالا بزنید:", _inline(rows))
+    rows.append([{"text": "⬅️ Categories", "callback_data": "categories"}])
+    _send(chat_id, f"{category_info[0]}\nTap an item to add it:", _inline(rows))
 
 
 def _show_shopping(chat_id, purchasing=False):
     payload = STORE.load()
     shopping = payload["shopping"]
     if not shopping:
-        _send(chat_id, "🛒 لیست خرید خالی است.", _category_keyboard())
+        _send(chat_id, "🛒 Your shopping list is empty.", _category_keyboard())
         return
-    lines = ["✅ کالاهای خریداری‌شده را انتخاب کنید:" if purchasing else "🛒 لیست خرید خانه:"]
+    lines = ["✅ Select the items you purchased:" if purchasing else "🛒 Home shopping list:"]
     rows = []
     for item_id, row in shopping.items():
         item = CATALOG.get(item_id)
         if not item:
             continue
         quantity = int(row.get("quantity") or 1)
-        lines.append(f"• {item['name']} — {quantity} عدد")
+        lines.append(f"• {item['name']} — Qty. {quantity}")
         if purchasing:
             rows.append([{
                 "text": f"✅ {item['name']}",
@@ -319,8 +319,8 @@ def _show_shopping(chat_id, purchasing=False):
                 {"text": f"➕ {item['name']}", "callback_data": f"add:{item_id}"},
                 {"text": "🗑", "callback_data": f"remove:{item_id}"},
             ])
-    rows.append([{"text": "➕ افزودن کالا", "callback_data": "categories"}])
-    rows.append([{"text": "⬅️ بازگشت", "callback_data": "home"}])
+    rows.append([{"text": "➕ Add Items", "callback_data": "categories"}])
+    rows.append([{"text": "⬅️ Back", "callback_data": "home"}])
     _send(chat_id, "\n".join(lines), _inline(rows))
 
 
@@ -332,28 +332,28 @@ def _show_quantity(chat_id, item_id):
     rows = [[
         {"text": str(quantity), "callback_data": f"qty:{item_id}:{quantity}"}
         for quantity in (1, 2, 3, 4)
-    ], [{"text": "⬅️ بازگشت", "callback_data": "purchase-list"}]]
-    _send(chat_id, f"از «{item['name']}» چند عدد خریدید؟", _inline(rows))
+    ], [{"text": "⬅️ Back", "callback_data": "purchase-list"}]]
+    _send(chat_id, f"How many units of “{item['name']}” did you buy?", _inline(rows))
 
 
 def _show_due(chat_id):
     payload = STORE.load()
     stats = consumption_stats(payload)
     rows = []
-    lines = ["⚠️ کالاهایی که براساس مصرف قبلی احتمالاً رو به اتمام‌اند:"]
+    lines = ["⚠️ Items that may be running low based on past purchases:"]
     for item_id, row in sorted(stats.items(), key=lambda entry: entry[1]["next_date"] or date.max):
         if not row["due"] or item_id in payload["shopping"]:
             continue
         item = CATALOG[item_id]
-        lines.append(f"• {item['name']} — چرخه تقریبی {row['average_days']} روز")
+        lines.append(f"• {item['name']} — about every {row['average_days']} days")
         rows.append([{
             "text": f"➕ {item['name']}",
             "callback_data": f"add:{item_id}",
         }])
     if not rows:
-        _send(chat_id, "✅ فعلاً کالای رو به اتمام شناسایی نشده است.\nبا ثبت خریدها، پیش‌بینی دقیق‌تر می‌شود.", _main_menu())
+        _send(chat_id, "✅ No items are currently predicted to be running low.\nPredictions improve as purchases are recorded.", _main_menu())
         return
-    rows.append([{"text": "⬅️ بازگشت", "callback_data": "home"}])
+    rows.append([{"text": "⬅️ Back", "callback_data": "home"}])
     _send(chat_id, "\n".join(lines), _inline(rows))
 
 
@@ -367,15 +367,15 @@ def _show_trends(chat_id):
     if not learned:
         _send(
             chat_id,
-            "📊 برای محاسبه روند مصرف، حداقل دو خرید از یک کالا را ثبت کنید.",
+            "📊 Record at least two purchases of an item to calculate its consumption trend.",
             _main_menu(),
         )
         return
-    lines = ["📊 روند مصرف خانه:"]
+    lines = ["📊 Household consumption trends:"]
     for item_id, row in learned[:20]:
         next_text = row["next_date"].strftime("%Y-%m-%d") if row["next_date"] else "—"
         lines.append(
-            f"• {CATALOG[item_id]['name']}: هر {row['average_days']} روز | خرید بعدی حدود {next_text}"
+            f"• {CATALOG[item_id]['name']}: every {row['average_days']} days | next purchase around {next_text}"
         )
     _send(chat_id, "\n".join(lines), _main_menu())
 
@@ -383,13 +383,13 @@ def _show_trends(chat_id):
 def _show_history(chat_id):
     rows = STORE.load()["purchases"][-20:]
     if not rows:
-        _send(chat_id, "📜 هنوز خریدی ثبت نشده است.", _main_menu())
+        _send(chat_id, "📜 No purchases have been recorded yet.", _main_menu())
         return
-    lines = ["📜 آخرین خریدها:"]
+    lines = ["📜 Recent purchases:"]
     for row in reversed(rows):
         purchased = _parse_day(row.get("purchased_at"))
         when = purchased.strftime("%Y-%m-%d") if purchased else "—"
-        lines.append(f"• {row.get('name', 'کالا')} — {row.get('quantity', 1)} عدد — {when}")
+        lines.append(f"• {row.get('name', 'Item')} — Qty. {row.get('quantity', 1)} — {when}")
     _send(chat_id, "\n".join(lines), _main_menu())
 
 
@@ -402,7 +402,7 @@ def handle_update(data):
     if not actor or not chat_id:
         return
     if not _authorized(actor):
-        _send(chat_id, "⛔ این ربات خصوصی است.")
+        _send(chat_id, "⛔ This bot is private.")
         return
 
     if callback:
@@ -421,10 +421,10 @@ def handle_update(data):
             item_id = action.split(":", 1)[1]
             if item_id in CATALOG:
                 STORE.add_to_list(item_id)
-                _answer_callback(callback_id, f"{CATALOG[item_id]['name']} اضافه شد")
+                _answer_callback(callback_id, f"{CATALOG[item_id]['name']} added")
                 _show_catalog(chat_id, CATALOG[item_id]["category"])
         elif action.startswith("remove:"):
-            _answer_callback(callback_id, "از لیست حذف شد")
+            _answer_callback(callback_id, "Removed from the list")
             STORE.remove_from_list(action.split(":", 1)[1])
             _show_shopping(chat_id)
         elif action == "purchase-list":
@@ -438,29 +438,29 @@ def handle_update(data):
             if item_id in CATALOG and quantity.isdigit():
                 name = CATALOG[item_id]["name"]
                 STORE.record_purchase(item_id, int(quantity))
-                _answer_callback(callback_id, f"خرید {name} ثبت شد")
+                _answer_callback(callback_id, f"Purchase recorded: {name}")
                 _show_shopping(chat_id, purchasing=True)
         else:
             _answer_callback(callback_id)
         return
 
     text = str(message.get("text") or "").strip()
-    if text in ("/start", "/menu", "🏠 منوی اصلی"):
+    if text in ("/start", "/menu", "🏠 Main Menu"):
         _show_home(chat_id)
-    elif text == "🛒 لیست خرید":
+    elif text == "🛒 Shopping List":
         _show_shopping(chat_id)
-    elif text == "➕ افزودن کالا":
+    elif text == "➕ Add Items":
         _show_categories(chat_id)
-    elif text == "✅ ثبت خرید":
+    elif text == "✅ Record Purchase":
         _show_shopping(chat_id, purchasing=True)
-    elif text == "⚠️ رو به اتمام":
+    elif text == "⚠️ Running Low":
         _show_due(chat_id)
-    elif text == "📊 روند مصرف":
+    elif text == "📊 Consumption Trends":
         _show_trends(chat_id)
-    elif text == "📜 تاریخچه خرید":
+    elif text == "📜 Purchase History":
         _show_history(chat_id)
     else:
-        _send(chat_id, "لطفاً یکی از دکمه‌ها را انتخاب کنید.", _main_menu())
+        _send(chat_id, "Please choose one of the buttons.", _main_menu())
 
 
 def _configure_telegram():
@@ -477,8 +477,8 @@ def _configure_telegram():
     commands_result = _telegram(
         "setMyCommands",
         commands=[
-            {"command": "start", "description": "باز کردن مدیریت خانه"},
-            {"command": "menu", "description": "نمایش منوی اصلی"},
+            {"command": "start", "description": "Open the home manager"},
+            {"command": "menu", "description": "Show the main menu"},
         ],
     )
     logger.info("HOUSEHOLD BOT SETUP webhook=%s commands=%s", webhook_result.get("ok"), commands_result.get("ok"))
