@@ -48,12 +48,12 @@ MS_CLIENT_ID = os.environ.get(
     'MS_CLIENT_ID', 'cc816a89-9af1-4afc-a08d-1ea9dd604ec5'
 )
 MS_CLIENT_SECRET = os.environ.get('MS_CLIENT_SECRET', '')
-EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'arash.rohani@metrastructure.ca')
+EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'a.rohani@metraconsultation.ca')
 INVOICE_EMAIL_SENDER = os.environ.get(
     'INVOICE_EMAIL_SENDER', 'accounting@metrastructure.ca'
 )
 INVOICE_CC_EMAIL = os.environ.get(
-    'INVOICE_CC_EMAIL', 'arash.rohani@metrastructure.ca'
+    'INVOICE_CC_EMAIL', 'a.rohani@metraconsultation.ca'
 ).strip()
 INVOICE_DRIVE_OWNER = os.environ.get(
     'INVOICE_DRIVE_OWNER', EMAIL_SENDER
@@ -1188,7 +1188,7 @@ def build_email_preview(data):
         "Arash Rohani, ing., P.Eng.\n"
         "Président – Ingénieur en structure\n"
         f"{DISPLAY_BRAND}\n"
-        "arash.rohani@metrastructure.ca | (438) 867-4131"
+        "a.rohani@metraconsultation.ca | (438) 867-4131"
     )
     return recipient, subject, body
 
@@ -1209,8 +1209,8 @@ def email_body_html(body):
         '<strong style="font-size:12pt;color:#102a43">Arash Rohani, ing., P.Eng.</strong><br>'
         'Président – Ingénieur en structure<br>'
         f'<strong>{DISPLAY_BRAND}</strong><br>'
-        '<a href="mailto:arash.rohani@metrastructure.ca" style="color:#1155cc">'
-        'arash.rohani@metrastructure.ca</a> | '
+        '<a href="mailto:a.rohani@metraconsultation.ca" style="color:#1155cc">'
+        'a.rohani@metraconsultation.ca</a> | '
         '<a href="tel:+14388674131" style="color:#1155cc">(438) 867-4131</a><br>'
         '<a href="https://metrastructure.ca" style="color:#1155cc">metrastructure.ca</a>'
         '</div></div>'
