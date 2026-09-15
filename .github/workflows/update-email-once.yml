@@ -1,0 +1,42 @@
+name: Update offer email address once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/update-email-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-email:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace old personal email in offer bot
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.py')
+          s = p.read_text(encoding='utf-8')
+          old = 'arash.rohani@metrastructure.ca'
+          new = 'a.rohani@metraconsultation.ca'
+          count = s.count(old)
+          if count == 0:
+              print('No old address found; nothing to change.')
+          else:
+              s = s.replace(old, new)
+              p.write_text(s, encoding='utf-8')
+              print(f'Replaced {count} occurrence(s).')
+          PY
+      - name: Commit change
+        run: |
+          if git diff --quiet -- app.py; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py
+          git commit -m 'fix: use new Metra email in offer templates'
+          git push
