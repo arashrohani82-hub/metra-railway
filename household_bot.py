@@ -132,17 +132,17 @@ def init_household_bot(app):
  if app.config.get("HOUSEHOLD_BOT_REGISTERED") or not BOT_TOKEN:return False
  app.config["HOUSEHOLD_BOT_REGISTERED"]=True
  @app.post("/webhook/household")
- def webhook():
+ def household_webhook():
   if WEBHOOK_SECRET and not hmac.compare_digest(request.headers.get("X-Telegram-Bot-Api-Secret-Token",""),WEBHOOK_SECRET):return "forbidden",403
   data=request.get_json(force=True,silent=True)
   if data:threading.Thread(target=handle_update,args=(data,),daemon=True).start()
   return "ok",200
  @app.get("/setup/household")
- def setup():
+ def household_setup():
   if not SETUP_SECRET or not hmac.compare_digest(request.args.get("key",""),SETUP_SECRET):return "forbidden",403
   return jsonify(configure())
  @app.get("/status/household")
- def status():
+ def household_status():
   if not SETUP_SECRET or not hmac.compare_digest(request.args.get("key",""),SETUP_SECRET):return "forbidden",403
   p=STORE.load();return jsonify({"status":"ok","purchase_records":len(p["purchases"])})
  threading.Thread(target=configure,daemon=True).start();logger.info("HOUSEHOLD BOT routes registered");return True
