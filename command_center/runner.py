@@ -20,14 +20,13 @@ def resilient_bot_status(bot):
         response = requests.get(f"{url}/status", timeout=4)
         if response.ok:
             return "🟢 Online"
-        if response.status_code in (401, 403, 404):
+        if response.status_code in (401, 403, 404, 405):
             root = requests.get(url, timeout=4)
-            if root.ok:
+            if root.status_code < 500:
                 return "🟢 Online"
         return f"🟡 HTTP {response.status_code}"
     except Exception:
         return "🔴 Offline"
-
 
 command_center.bot_status = resilient_bot_status
 
@@ -43,7 +42,7 @@ def direct_bot_open_button(key, label):
 
 command_center.bot_open_button = direct_bot_open_button
 
-# Extend the main menu with the two new bots.
+# Main menu: add the two new bots and remove the unused CEO Dashboard button.
 _original_main_menu = command_center.main_menu
 def extended_main_menu():
     menu = _original_main_menu()
@@ -52,7 +51,10 @@ def extended_main_menu():
         command_center.bot_open_button("shopping", "🛒 Home Shopping"),
         command_center.bot_open_button("arvin", "👦 Arvin Daily"),
     ])
-    menu.append(system_row)
+    # Keep only Bots & System from the original final row.
+    system_button = next((button for button in system_row if button.get("callback_data") == "system"), None)
+    if system_button:
+        menu.append([system_button])
     return menu
 command_center.main_menu = extended_main_menu
 
