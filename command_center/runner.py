@@ -42,21 +42,20 @@ def direct_bot_open_button(key, label):
 
 command_center.bot_open_button = direct_bot_open_button
 
-# Main menu: add the two new bots and remove the unused CEO Dashboard button.
-_original_main_menu = command_center.main_menu
-def extended_main_menu():
-    menu = _original_main_menu()
-    system_row = menu.pop()
-    menu.append([
-        command_center.bot_open_button("shopping", "🛒 Home Shopping"),
-        command_center.bot_open_button("arvin", "👦 Arvin Daily"),
-    ])
-    # Keep only Bots & System from the original final row.
-    system_button = next((button for button in system_row if button.get("callback_data") == "system"), None)
-    if system_button:
-        menu.append([system_button])
-    return menu
-command_center.main_menu = extended_main_menu
+# Navigation-only launcher: every visible button opens a destination bot directly.
+def launcher_menu():
+    return [
+        [command_center.bot_open_button("ods", "🧾 ODS / Offers"), command_center.bot_open_button("bookkeeping", "📚 Bookkeeping")],
+        [command_center.bot_open_button("guardian", "🛡 Guardian"), command_center.bot_open_button("intelligence", "🌎 Intelligence")],
+        [command_center.bot_open_button("language", "🗣 Language"), command_center.bot_open_button("website", "🌐 Website")],
+        [command_center.bot_open_button("inspection", "🏗 Inspection / Report")],
+        [command_center.bot_open_button("shopping", "🛒 Home Shopping"), command_center.bot_open_button("arvin", "👦 Arvin Daily")],
+    ]
+command_center.main_menu = launcher_menu
+
+def launcher_home(chat_id):
+    command_center.send_message(chat_id, "🏢 METRA COMMAND CENTER\n\nSelect a destination:", launcher_menu())
+command_center.show_home = launcher_home
 
 _original_send_message = command_center.send_message
 
@@ -95,52 +94,24 @@ def smart_route_image(user_id, chat_id, file_id):
         return
     try:
         image = command_center.download_telegram_file(file_id)
-        classify = requests.post(
-            f"{ods_url}/router/classify-image",
-            headers=_router_headers(),
-            files={"image": ("image.jpg", image, "image/jpeg")},
-            timeout=90,
-        )
+        classify = requests.post(f"{ods_url}/router/classify-image",headers=_router_headers(),files={"image": ("image.jpg", image, "image/jpeg")},timeout=90)
         result = _json_or_error(classify, "Router classifier")
-        route = result.get("route", "unknown")
-        confidence = float(result.get("confidence") or 0)
+        route = result.get("route", "unknown");confidence = float(result.get("confidence") or 0)
         if route == "receipt":
             command_center.send_message(chat_id, f"🧠 Smart Router → 📚 Bookkeeping ({confidence:.0%})")
             return _original_receipt_router(user_id, chat_id, file_id)
         if route == "ods":
             command_center.send_message(chat_id, f"🧠 Smart Router → 🧾 ODS / Offers ({confidence:.0%})")
-            response = requests.post(
-                f"{ods_url}/router/ods-extract",
-                headers=_router_headers(),
-                data={"user_id": str(user_id)},
-                files={"image": ("client-request.jpg", image, "image/jpeg")},
-                timeout=120,
-            )
-            data = _json_or_error(response, "ODS")
-            ods = data.get("ods") or {}
-            username = command_center.bot_username(command_center.get_bot("ods"))
-            keyboard = []
-            if username:
-                keyboard.append([{"text": "▶️ ادامه در ODS", "url": f"https://t.me/{username}"}])
-            keyboard.append([{"text": "🏠 Main menu", "callback_data": "home"}])
-            text = (
-                "🧾 درخواست مشتری شناسایی شد\n\n"
-                f"👤 مشتری: {ods.get('name') or '—'}\n"
-                f"📧 ایمیل: {ods.get('email') or '—'}\n"
-                f"📞 تلفن: {ods.get('phone') or '—'}\n"
-                f"📍 پروژه: {ods.get('addr') or '—'}\n"
-                f"🔧 سرویس: {ods.get('service') or '—'}\n"
-                f"💰 پیشنهاد اولیه: ${int(ods.get('price') or 0):,} CAD\n"
-                f"📄 شماره اولیه: {ods.get('odsNum') or '—'}\n\n"
-                "اطلاعات داخل Session ربات ODS ذخیره شد."
-            )
-            command_center.send_message(chat_id, text, keyboard)
-            return
-        labels = {"inspection":"🏗 Inspection / Report","guardian":"🛡 Guardian","unknown":"❓ نامشخص"}
-        command_center.send_message(chat_id, f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})\nاتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.", [[{"text":"🏠 Main menu","callback_data":"home"}]])
+            response = requests.post(f"{ods_url}/router/ods-extract",headers=_router_headers(),data={"user_id": str(user_id)},files={"image": ("client-request.jpg", image, "image/jpeg")},timeout=120)
+            data = _json_or_error(response, "ODS");ods = data.get("ods") or {};username = command_center.bot_username(command_center.get_bot("ods"));keyboard=[]
+            if username:keyboard.append([{"text":"▶️ ادامه در ODS","url":f"https://t.me/{username}"}])
+            keyboard.append([{"text":"🏠 Main menu","callback_data":"home"}])
+            text=("🧾 درخواست مشتری شناسایی شد\n\n"f"👤 مشتری: {ods.get('name') or '—'}\n"f"📧 ایمیل: {ods.get('email') or '—'}\n"f"📞 تلفن: {ods.get('phone') or '—'}\n"f"📍 پروژه: {ods.get('addr') or '—'}\n"f"🔧 سرویس: {ods.get('service') or '—'}\n"f"💰 پیشنهاد اولیه: ${int(ods.get('price') or 0):,} CAD\n"f"📄 شماره اولیه: {ods.get('odsNum') or '—'}\n\nاطلاعات داخل Session ربات ODS ذخیره شد.")
+            command_center.send_message(chat_id,text,keyboard);return
+        labels={"inspection":"🏗 Inspection / Report","guardian":"🛡 Guardian","unknown":"❓ نامشخص"}
+        command_center.send_message(chat_id,f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})\nاتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.",[[{"text":"🏠 Main menu","callback_data":"home"}]])
     except Exception as exc:
-        command_center.logger.exception("Smart image routing failed")
-        command_center.send_message(chat_id, f"❌ Smart Router خطا داد:\n{str(exc)[:260]}")
+        command_center.logger.exception("Smart image routing failed");command_center.send_message(chat_id,f"❌ Smart Router خطا داد:\n{str(exc)[:260]}")
 
 command_center.route_receipt_photo = smart_route_image
 app = command_center.app
