@@ -6,7 +6,6 @@ that share the same Railway web service.
 import os
 
 from ods_router import app
-import ods_recovery  # patches ODS conversion search with OneDrive recovery
 import household_bot
 
 # Prefer Railway's live public domain for the household Telegram webhook. This
@@ -28,3 +27,9 @@ household_bot.logger.warning(
     f"{household_bot.PUBLIC_URL}/webhook/household" if household_bot.PUBLIC_URL else "missing",
     (setup_result.get("webhook") or {}).get("description", ""),
 )
+
+# IMPORTANT: load recovery LAST. fixed_ods_app / ods_runtime patch the legacy
+# Telegram handlers during import. Loading recovery earlier allowed those later
+# patches to replace show_pending_offers again, so searches such as 111 never
+# reached OneDrive even though ods_recovery.py existed.
+import ods_recovery  # noqa: E402,F401
