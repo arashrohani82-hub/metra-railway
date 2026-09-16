@@ -2,6 +2,15 @@ import os
 import requests
 import app as command_center
 
+# Extra bots managed outside the original seven-bot registry.
+EXTRA_BOTS = [
+    {"key":"shopping","name":"Home Shopping Manager","emoji":"🛒","username_env":"SHOPPING_BOT_USERNAME","service_url_env":"SHOPPING_SERVICE_URL","repo":"arashrohani82-hub/metra-railway"},
+    {"key":"arvin","name":"Arvin Daily Tracker","emoji":"👦","username_env":"ARVIN_BOT_USERNAME","service_url_env":"ARVIN_SERVICE_URL","repo":"arashrohani82-hub/arvin-daily-tracker"},
+]
+for _bot in EXTRA_BOTS:
+    if not any(b.get("key") == _bot["key"] for b in command_center.BOTS):
+        command_center.BOTS.append(_bot)
+
 
 def resilient_bot_status(bot):
     url = command_center.bot_service_url(bot)
@@ -22,9 +31,7 @@ def resilient_bot_status(bot):
 
 command_center.bot_status = resilient_bot_status
 
-# Open Language Coach directly in the Telegram app. Keep normal t.me links for other bots.
 _original_bot_open_button = command_center.bot_open_button
-
 
 def direct_bot_open_button(key, label):
     if key == "language":
@@ -34,17 +41,27 @@ def direct_bot_open_button(key, label):
             return {"text": label, "url": f"tg://resolve?domain={username}"}
     return _original_bot_open_button(key, label)
 
-
 command_center.bot_open_button = direct_bot_open_button
 
-_original_send_message = command_center.send_message
+# Extend the main menu with the two new bots.
+_original_main_menu = command_center.main_menu
+def extended_main_menu():
+    menu = _original_main_menu()
+    system_row = menu.pop()
+    menu.append([
+        command_center.bot_open_button("shopping", "🛒 Home Shopping"),
+        command_center.bot_open_button("arvin", "👦 Arvin Daily"),
+    ])
+    menu.append(system_row)
+    return menu
+command_center.main_menu = extended_main_menu
 
+_original_send_message = command_center.send_message
 
 def smart_send_message(chat_id, text, keyboard=None):
     if text == "🧠 عکس دریافت شد؛ در حال ارسال به Bookkeeping…":
         text = "🧠 عکس دریافت شد؛ در حال تحلیل و مسیریابی…"
     return _original_send_message(chat_id, text, keyboard)
-
 
 command_center.send_message = smart_send_message
 _original_receipt_router = command_center.route_receipt_photo
@@ -85,11 +102,9 @@ def smart_route_image(user_id, chat_id, file_id):
         result = _json_or_error(classify, "Router classifier")
         route = result.get("route", "unknown")
         confidence = float(result.get("confidence") or 0)
-
         if route == "receipt":
             command_center.send_message(chat_id, f"🧠 Smart Router → 📚 Bookkeeping ({confidence:.0%})")
             return _original_receipt_router(user_id, chat_id, file_id)
-
         if route == "ods":
             command_center.send_message(chat_id, f"🧠 Smart Router → 🧾 ODS / Offers ({confidence:.0%})")
             response = requests.post(
@@ -119,22 +134,11 @@ def smart_route_image(user_id, chat_id, file_id):
             )
             command_center.send_message(chat_id, text, keyboard)
             return
-
-        labels = {
-            "inspection": "🏗 Inspection / Report",
-            "guardian": "🛡 Guardian",
-            "unknown": "❓ نامشخص",
-        }
-        command_center.send_message(
-            chat_id,
-            f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})\n"
-            "اتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.",
-            [[{"text": "🏠 Main menu", "callback_data": "home"}]],
-        )
+        labels = {"inspection":"🏗 Inspection / Report","guardian":"🛡 Guardian","unknown":"❓ نامشخص"}
+        command_center.send_message(chat_id, f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})\nاتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.", [[{"text":"🏠 Main menu","callback_data":"home"}]])
     except Exception as exc:
         command_center.logger.exception("Smart image routing failed")
         command_center.send_message(chat_id, f"❌ Smart Router خطا داد:\n{str(exc)[:260]}")
-
 
 command_center.route_receipt_photo = smart_route_image
 app = command_center.app
