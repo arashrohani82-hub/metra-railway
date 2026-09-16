@@ -6,6 +6,7 @@ that share the same Railway web service.
 import os
 
 from ods_router import app
+import ods_recovery  # patches ODS conversion search with OneDrive recovery
 import household_bot
 
 # Prefer Railway's live public domain for the household Telegram webhook. This
