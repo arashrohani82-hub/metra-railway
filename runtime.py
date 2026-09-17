@@ -46,3 +46,6 @@ household_bot.logger.warning(
     f'{household_bot.PUBLIC_URL}/webhook/household' if household_bot.PUBLIC_URL else 'missing',
     (setup_result.get('webhook') or {}).get('description', ''),
 )
+
+# Load this last so no later runtime layer can restore the old email signature.
+import final_email_branding  # noqa: E402,F401
