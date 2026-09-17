@@ -1,5 +1,4 @@
 """Department-aware ODS workflow for Structure, Civil and Geotechnical offers."""
-import io
 import re
 import threading
 from datetime import datetime
@@ -8,7 +7,7 @@ import app as legacy
 
 DEPARTMENTS = {
     'STR': {'label': 'Structure', 'header': 'Ingénierie des structures / Structural Engineering', 'folder': 'Offres Structure', 'role': 'Président – Ingénieur en structure'},
-    'CIV': {'label': 'Civil', 'header': 'Ingénierie civile / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président – Ingénieur civil'},
+    'CIV': {'label': 'Civil', 'header': 'Ingénierie civile / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président – Ingénieur'},
     'GEO': {'label': 'Géotechnique', 'header': 'Ingénierie géotechnique / Geotechnical Engineering', 'folder': 'Offres Géotechnique', 'role': 'Président – Ingénieur'},
 }
 DEPT_BY_UID = {}
@@ -29,7 +28,6 @@ def ask_department(chat_id, uid):
     ])
 
 
-# ODS reference: ODS26-119-STR-APL-Title (department code is always explicit).
 def build_ods_num(data):
     yr = datetime.now().strftime('%y')
     num = str(data.get('project_num') or '000').zfill(3)
@@ -63,28 +61,16 @@ def offer_reference(data):
 legacy.offer_reference = offer_reference
 
 
-def project_year_and_code(data):
-    ods = str(data.get('odsNum') or '')
-    match = re.search(r'ODS(\d{2})-\d{3}-(STR|CIV|GEO)-([A-Z]{3})', ods, re.I)
-    if match:
-        return f'20{match.group(1)}', f'{match.group(2).upper()}-{match.group(3).upper()}'
-    match = re.search(r'ODS(\d{2})-\d{3}-([A-Z]{3})', ods, re.I)
-    if match:
-        return f'20{match.group(1)}', match.group(2).upper()
-    return datetime.now().strftime('%Y'), f"{_dept(data)}-{str(data.get('file_code') or 'PRJ').upper()[:3]}"
-
-legacy.project_year_and_code = project_year_and_code
-
-
 def get_next_project_num_from_onedrive():
-    """Keep one continuous ODS sequence across all three departments and legacy files."""
     year2 = datetime.now().strftime('%y')
     year4 = datetime.now().strftime('%Y')
     token = legacy.graph_access_token()
     sender = legacy.microsoft_email_config()['EMAIL_SENDER']
     roots = ['Metra Structure Inc/Offre de service']
-    for meta in DEPARTMENTS.values():
-        roots.append(f"Metra Structure Inc/Offre de service/{year4}/{meta['folder']}")
+    roots.extend(
+        f"Metra Structure Inc/Offre de service/{year4}/{meta['folder']}"
+        for meta in DEPARTMENTS.values()
+    )
     numbers = []
     pattern = re.compile(rf'ODS{year2}-(\d{{1,4}})(?:-|\b)', re.I)
     for root in roots:
@@ -96,16 +82,9 @@ def get_next_project_num_from_onedrive():
             m = pattern.search(str(item.get('name') or ''))
             if m:
                 numbers.append(int(m.group(1)))
-    candidate = max(numbers, default=80) + 1
-    return str(candidate).zfill(3)
+    return str(max(numbers, default=80) + 1).zfill(3)
 
 legacy.get_next_project_num = get_next_project_num_from_onedrive
-
-
-def _archive_folder(data):
-    dept = _dept(data)
-    year = datetime.now().strftime('%Y')
-    return f"Metra Structure Inc/Offre de service/{year}/{DEPARTMENTS[dept]['folder']}"
 
 
 def archive_ods_files(data, token, sender, pdf_bytes):
@@ -125,15 +104,15 @@ def archive_ods_files(data, token, sender, pdf_bytes):
 
 legacy.archive_ods_files = archive_ods_files
 
-
-# Department-specific PDF header while preserving the approved two-page layout.
-_original_draw_header_footer = legacy.draw_header_footer
 _original_generate_pdf = legacy.generate_pdf
 _original_paragraph = legacy.Paragraph
+_original_draw_header_footer = legacy.draw_header_footer
 
 
 def draw_header_footer(canvas, doc):
-    meta = DEPARTMENTS.get(_pdf_department, DEPARTMENTS['STR'])
+    if _pdf_department == 'STR':
+        return _original_draw_header_footer(canvas, doc)
+    meta = DEPARTMENTS[_pdf_department]
     canvas.saveState()
     canvas.drawImage(legacy.LOGOS['metra'], 1.8*legacy.cm, legacy.H-2.85*legacy.cm, width=3.6*legacy.cm, height=1.35*legacy.cm, preserveAspectRatio=True, mask='auto')
     canvas.setFillColor(legacy.BLACK)
@@ -165,7 +144,7 @@ def generate_pdf(data):
         _pdf_department = _dept(data)
         role = DEPARTMENTS[_pdf_department]['role']
         def paragraph(text, *args, **kwargs):
-            if isinstance(text, str) and text == 'Président-Ingénieur en structure':
+            if isinstance(text, str) and text == 'Président-Ingénieur en structure' and _pdf_department != 'STR':
                 text = role
             return _original_paragraph(text, *args, **kwargs)
         legacy.Paragraph = paragraph
@@ -177,37 +156,43 @@ def generate_pdf(data):
 
 legacy.generate_pdf = generate_pdf
 
-
-# Preserve the chosen department when the extraction routines replace session data.
+# Preserve department BEFORE the original extraction replaces user_data.
 _original_extract_text = legacy.do_extract_text
 _original_extract_many = legacy.do_extract_many
 
+
 def do_extract_text(chat_id, uid, text):
-    dept = DEPT_BY_UID.get(str(uid), _dept(legacy.user_data.get(str(uid), {})))
-    DEPT_BY_UID[str(uid)] = dept
-    try:
-        return _original_extract_text(chat_id, uid, text)
-    finally:
-        if str(uid) in legacy.user_data:
-            legacy.user_data[str(uid)]['department'] = dept
-            legacy.save_user_data()
+    uid = str(uid)
+    dept = DEPT_BY_UID.get(uid) or legacy.user_data.get(uid, {}).get('department')
+    if dept:
+        DEPT_BY_UID[uid] = dept
+        legacy.user_data.setdefault(uid, {})['department'] = dept
+        legacy.save_user_data()
+    result = _original_extract_text(chat_id, uid, text)
+    if dept and uid in legacy.user_data:
+        legacy.user_data[uid]['department'] = dept
+        legacy.save_user_data()
+    return result
+
 
 def do_extract_many(chat_id, uid, file_ids):
-    dept = DEPT_BY_UID.get(str(uid), _dept(legacy.user_data.get(str(uid), {})))
-    DEPT_BY_UID[str(uid)] = dept
-    try:
-        return _original_extract_many(chat_id, uid, file_ids)
-    finally:
-        if str(uid) in legacy.user_data:
-            legacy.user_data[str(uid)]['department'] = dept
-            legacy.save_user_data()
+    uid = str(uid)
+    dept = DEPT_BY_UID.get(uid) or legacy.user_data.get(uid, {}).get('department')
+    if dept:
+        DEPT_BY_UID[uid] = dept
+        legacy.user_data.setdefault(uid, {})['department'] = dept
+        legacy.save_user_data()
+    result = _original_extract_many(chat_id, uid, file_ids)
+    if dept and uid in legacy.user_data:
+        legacy.user_data[uid]['department'] = dept
+        legacy.save_user_data()
+    return result
 
 legacy.do_extract_text = do_extract_text
 legacy.do_extract_many = do_extract_many
 
-
-# Final handler wrapper: department is always the first question for a new ODS.
 _original_handle_update = legacy.handle_update
+
 
 def handle_update(data):
     msg = data.get('message', {})
@@ -229,6 +214,15 @@ def handle_update(data):
             legacy.save_user_data()
             legacy.tg(chat_id, f"✅ Département : {DEPARTMENTS[code]['label']}\n\n📸 Envoyez une photo ou collez le texte/courriel du client.")
             return
+        if cdata == 'nouveau':
+            uid = str(cb.get('from', {}).get('id'))
+            chat_id = cb.get('message', {}).get('chat', {}).get('id')
+            legacy.user_data.pop(uid, None)
+            DEPT_BY_UID.pop(uid, None)
+            legacy.save_user_data()
+            ask_department(chat_id, uid)
+            return
+
     if msg and msg.get('text') in ('/start', '/nouveau', '📝 Nouvelle offre'):
         uid = str(msg.get('from', {}).get('id'))
         chat_id = msg.get('chat', {}).get('id')
@@ -242,6 +236,7 @@ def handle_update(data):
         legacy.tg(chat_id, f"👋 {legacy.DISPLAY_BRAND_SHORT} — Nouvelle offre", reply_markup=legacy.main_menu())
         ask_department(chat_id, uid)
         return
+
     if msg and (msg.get('text') or msg.get('photo')):
         uid = str(msg.get('from', {}).get('id'))
         text = msg.get('text', '')
@@ -252,4 +247,4 @@ def handle_update(data):
     return _original_handle_update(data)
 
 legacy.handle_update = handle_update
-legacy.logger.info('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO')
+legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO')
