@@ -8,6 +8,7 @@ import urllib.parse
 from datetime import datetime
 
 import followup_persistence_runtime as guarded
+import department_ods_patch as dept_patch
 
 app = guarded.app
 legacy = guarded.legacy
@@ -26,12 +27,52 @@ def _active_department(data=None):
     code = str((data or {}).get('department') or '').upper()
     if code in DEPARTMENT_FOLDERS:
         return code
+
     uid = getattr(_CTX, 'uid', None)
     if uid is not None:
-        code = str((legacy.user_data.get(str(uid), {}) or {}).get('department') or '').upper()
+        uid = str(uid)
+        code = str((legacy.user_data.get(uid, {}) or {}).get('department') or '').upper()
         if code in DEPARTMENT_FOLDERS:
             return code
+        code = str(dept_patch.DEPT_BY_UID.get(uid) or '').upper()
+        if code in DEPARTMENT_FOLDERS:
+            legacy.user_data.setdefault(uid, {})['department'] = code
+            legacy.save_user_data()
+            logger.info('ODS DEPARTMENT RESTORED uid=%s department=%s source=DEPT_BY_UID', uid, code)
+            return code
+
+    # Last-resort lookup: when extraction replaced user_data but the Telegram
+    # department selector already recorded the choice in DEPT_BY_UID.
+    if len(dept_patch.DEPT_BY_UID) == 1:
+        code = str(next(iter(dept_patch.DEPT_BY_UID.values())) or '').upper()
+        if code in DEPARTMENT_FOLDERS:
+            logger.info('ODS DEPARTMENT FALLBACK department=%s source=single DEPT_BY_UID', code)
+            return code
     return 'STR'
+
+
+def _ensure_department(data=None, uid=None):
+    previous = getattr(_CTX, 'uid', None)
+    if uid is not None:
+        _CTX.uid = str(uid)
+    try:
+        code = _active_department(data)
+        if isinstance(data, dict) and data.get('department') != code:
+            data['department'] = code
+        if uid is not None:
+            uid = str(uid)
+            legacy.user_data.setdefault(uid, {})['department'] = code
+            legacy.save_user_data()
+        return code
+    finally:
+        if uid is not None:
+            if previous is None:
+                try:
+                    delattr(_CTX, 'uid')
+                except AttributeError:
+                    pass
+            else:
+                _CTX.uid = previous
 
 
 def _numbers_from_local_history(year, department):
@@ -92,6 +133,8 @@ def ask_next_missing_with_department_context(chat_id, uid):
     previous = getattr(_CTX, 'uid', None)
     _CTX.uid = str(uid)
     try:
+        d = legacy.user_data.get(str(uid), {})
+        _ensure_department(d, uid)
         return _original_ask_next_missing(chat_id, uid)
     finally:
         if previous is None:
@@ -107,7 +150,7 @@ legacy.ask_next_missing = ask_next_missing_with_department_context
 
 
 def archive_ods_files_by_department(data, token, sender, pdf_bytes):
-    department = _active_department(data)
+    department = _ensure_department(data)
     folder_name = DEPARTMENT_FOLDERS[department]
     legacy.create_onedrive_folder(token, sender, ODS_ROOT, folder_name)
     target = f'{ODS_ROOT}/{folder_name}'
@@ -140,11 +183,11 @@ def _email_html(data, reference):
     address = html.escape(str(data.get('addr') or '').strip().replace('\n', ', '))
     project_title = str(data.get('project_title') or data.get('service') or 'votre projet').strip()
     project_title = html.escape(project_title)
-    department = _active_department(data)
+    department = _ensure_department(data)
     role = {
         'STR': 'Président – Ingénieur en structure',
         'CIV': 'Président – Ingénieur civil',
-        'GEO': 'Président – Ingénieur',
+        'GEO': 'Président – Ingénieur en géotechnique',
     }[department]
     return f'''<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.55;color:#202124;">
 <p>Bonjour {greeting},</p>
@@ -167,7 +210,8 @@ def _email_html(data, reference):
 
 
 def send_ods_email_branded(data):
-    """Active production sender: clean body + CID logo + new website."""
+    """Active production sender: clean body + CID logo + department-safe identity."""
+    _ensure_department(data)
     recipient = legacy.valid_client_email(data.get('email'))
     if not recipient:
         raise ValueError('Le courriel du client est manquant ou invalide.')
@@ -235,7 +279,7 @@ def send_ods_email_branded(data):
         archive_error = str(exc)
         logger.error('OneDrive ODS archive error: %s', exc)
 
-    logger.info('ODS BRANDED EMAIL SENT reference=%s inline_logo=%s website=metraconsultation.ca', reference, bool(logo_b64))
+    logger.info('ODS BRANDED EMAIL SENT reference=%s department=%s inline_logo=%s website=metraconsultation.ca', reference, _active_department(data), bool(logo_b64))
     return recipient, subject, archive_files, archive_error
 
 
@@ -243,6 +287,7 @@ legacy.send_ods_email = send_ods_email_branded
 
 logger.info('ODS NUMBERING POLICY: PER-DEPARTMENT HIGHEST + 1')
 logger.info('ODS ARCHIVE POLICY: Structure/Civil/Geotechnic folders')
+logger.info('ODS DEPARTMENT POLICY: selector state survives extraction via DEPT_BY_UID')
 logger.info('ODS EMAIL POLICY: DIRECT BRANDED SENDER + CID LOGO + metraconsultation.ca')
 
 import offer_potential_runtime  # noqa: E402,F401
