@@ -28,8 +28,7 @@ household_bot.logger.warning(
     (setup_result.get("webhook") or {}).get("description", ""),
 )
 
-# IMPORTANT: load recovery LAST. fixed_ods_app / ods_runtime patch the legacy
-# Telegram handlers during import. Loading recovery earlier allowed those later
-# patches to replace show_pending_offers again, so searches such as 111 never
-# reached OneDrive even though ods_recovery.py existed.
+# Load recovery before the final department patch. Department patch must be last
+# because it wraps the final Telegram handler and ODS archive/numbering logic.
 import ods_recovery  # noqa: E402,F401
+import department_ods_patch  # noqa: E402,F401
