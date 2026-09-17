@@ -74,6 +74,13 @@ os.makedirs(DATA_DIR, exist_ok=True)
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
 W, H = letter
+
+# ── Department selection ──
+DEPARTMENTS = {
+    'STR': '🏗️ Structure',
+    'CIV': '🏘️ Génie civil',
+    'GEO': '🔍 Géotechnique',
+}
 BLACK = colors.black
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -165,18 +172,19 @@ def build_ods_num(d):
     import datetime as _dt
     yr = _dt.datetime.now().strftime('%y')
     num = str(d.get('project_num') or '000').zfill(3)
-    addr = (d.get('addr') or '')
-    addr_lines = [l.strip() for l in addr.split('\n') if l.strip()]
-    city_line = addr_lines[1] if len(addr_lines) >= 2 else (addr_lines[0] if addr_lines else '')
-    A = city_line[0].upper() if city_line else 'X'
-    name = (d.get('name') or '')
-    B = name[0].upper() if name else 'X'
-    service = (d.get('service') or '')
-    C = service[0].upper() if service else 'X'
+    dept = str(d.get('department') or 'STR').upper()
     code = re.sub(r'[^A-Z]', '', str(d.get('file_code') or '').upper())[:3]
     if len(code) != 3:
+        addr = (d.get('addr') or '')
+        addr_lines = [l.strip() for l in addr.split('\n') if l.strip()]
+        city_line = addr_lines[1] if len(addr_lines) >= 2 else (addr_lines[0] if addr_lines else '')
+        A = city_line[0].upper() if city_line else 'X'
+        name = (d.get('name') or '')
+        B = name[0].upper() if name else 'X'
+        service = (d.get('service') or '')
+        C = service[0].upper() if service else 'X'
         code = f"{A}{B}{C}"
-    return f"ODS{yr}-{num}-{code}"
+    return f"ODS{yr}-{num}-{dept}-{code}"
 
 def build_short_title(d):
     project_title = (d.get('project_title') or '').strip()
@@ -1072,6 +1080,15 @@ def _finish_photo_batch(chat_id, uid, generation):
 def queue_photo_extraction(chat_id, uid, file_id):
     """Collect consecutive Telegram photos before running one combined analysis."""
     uid = str(uid)
+    d = user_data.get(uid, {})
+    if not d.get('department'):
+        kb = [
+            [{'text': DEPARTMENTS['STR'], 'callback_data': 'dept:STR'}],
+            [{'text': DEPARTMENTS['CIV'], 'callback_data': 'dept:CIV'}],
+            [{'text': DEPARTMENTS['GEO'], 'callback_data': 'dept:GEO'}],
+        ]
+        tg(chat_id, "Sélectionnez d'abord le département:", keyboard=kb)
+        return
     with photo_batch_lock:
         batch = photo_batches.setdefault(uid, {'file_ids': [], 'generation': 0})
         if file_id not in batch['file_ids'] and len(batch['file_ids']) < MAX_EXTRACTION_IMAGES:
@@ -1085,6 +1102,15 @@ def queue_photo_extraction(chat_id, uid, file_id):
 
 def do_extract_text(chat_id, uid, client_text):
     uid = str(uid)
+    d = user_data.get(uid, {})
+    if not d.get('department'):
+        kb = [
+            [{'text': DEPARTMENTS['STR'], 'callback_data': 'dept:STR'}],
+            [{'text': DEPARTMENTS['CIV'], 'callback_data': 'dept:CIV'}],
+            [{'text': DEPARTMENTS['GEO'], 'callback_data': 'dept:GEO'}],
+        ]
+        tg(chat_id, "Sélectionnez d'abord le département:", keyboard=kb)
+        return
     try:
         PROMPT = (
             "Extract only information explicitly present in this client email/text. "
@@ -2262,6 +2288,23 @@ def handle_update(data):
             except:
                 pass
             logger.info(f"CB: {cdata} uid={uid} has_data={uid in user_data} keys={list(user_data.keys())}")
+            # Department selection (MUST be FIRST callback)
+            if cdata.startswith('dept:'):
+                dept_code = cdata.split(':')[1]
+                if dept_code in DEPARTMENTS:
+                    uid = str(cb['from']['id'])
+                    d = user_data.get(uid, {})
+                    d['department'] = dept_code
+                    user_data[uid] = d
+                    save_user_data()
+                    tg(
+                        chat_id,
+                        f"✅ Département sélectionné: {DEPARTMENTS[dept_code]}\n\n"
+                        "Envoyez une photo ou collez le texte/courriel du client.",
+                        reply_markup=main_menu(),
+                    )
+                return
+
             if cdata in ('xl', 'pdf', 'both'):
                 if uid not in user_data:
                     tg(chat_id, "❌ Session expirée. Envoyez une nouvelle photo.")
@@ -2437,11 +2480,17 @@ def handle_update(data):
                 if text in ('/start', '/nouveau', '📝 Nouvelle offre'):
                     user_data.pop(uid, None)
                     save_user_data()
+                    # Show department selection first
+                    kb = [
+                        [{'text': DEPARTMENTS['STR'], 'callback_data': 'dept:STR'}],
+                        [{'text': DEPARTMENTS['CIV'], 'callback_data': 'dept:CIV'}],
+                        [{'text': DEPARTMENTS['GEO'], 'callback_data': 'dept:GEO'}],
+                    ]
                     tg(
                         chat_id,
                         f"👋 {DISPLAY_BRAND_SHORT} — Nouvelle offre\n\n"
-                        "Envoyez une photo ou collez le texte/courriel du client.",
-                        reply_markup=main_menu(),
+                        "Sélectionnez le département:",
+                        keyboard=kb,
                     )
                     return
                 if text in ('/annuler', '/cancel', '❌ Annuler'):
