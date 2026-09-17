@@ -7,8 +7,8 @@ import app as legacy
 
 DEPARTMENTS = {
     'STR': {'label': 'Structure', 'header': 'Ingénierie des structures / Structural Engineering', 'folder': 'Offres Structure', 'role': 'Président-Ingénieur en structure'},
-    'CIV': {'label': 'Civil', 'header': 'Ingénierie civile / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président-Ingénieur civil'},
-    'GEO': {'label': 'Géotechnique', 'header': 'Ingénierie géotechnique / Geotechnical Engineering', 'folder': 'Offres Géotechnique', 'role': 'Président-Ingénieur en géotechnique'},
+    'CIV': {'label': 'Civil', 'header': 'Génie civil / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président-Ingénieur civil'},
+    'GEO': {'label': 'Géotechnique', 'header': 'Génie géotechnique / Geotechnical Engineering', 'folder': 'Offres Géotechnique', 'role': 'Président-Ingénieur'},
 }
 DEPT_BY_UID = {}
 _pdf_lock = threading.Lock()
@@ -135,18 +135,49 @@ def draw_header_footer(canvas, doc):
 legacy.draw_header_footer = draw_header_footer
 
 
+def _department_text(text, code, meta):
+    if not isinstance(text, str) or code == 'STR':
+        return text
+    text = text.replace('Président-Ingénieur en structure', meta['role'])
+    text = text.replace('Ingénierie des structures / Structural Engineering', meta['header'])
+    if code == 'CIV':
+        text = text.replace(
+            "Metra Consultation Inc. offre ses services d'ingénierie-conseil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat.",
+            "Metra Consultation Inc. offre ses services de génie civil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat."
+        )
+        text = text.replace(
+            "Toute requête de déplacement doit être transmise au moins 48 heures avant la date prévue.",
+            "Toute visite ou intervention sur site doit être coordonnée avec le client au moins 48 heures à l'avance. Le client doit assurer un accès sécuritaire aux zones visées et transmettre les plans, relevés et informations disponibles nécessaires au mandat."
+        )
+        text = text.replace(
+            "Plans architecturaux fournis avant le début du mandat (si disponible);",
+            "Plans, relevés, certificat de localisation et informations existantes fournis avant le début du mandat, selon leur disponibilité;"
+        )
+    elif code == 'GEO':
+        text = text.replace(
+            "Metra Consultation Inc. offre ses services d'ingénierie-conseil conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat.",
+            "Metra Consultation Inc. offre ses services de génie géotechnique conformément aux cadres légaux, aux normes en vigueur et aux règles professionnelles applicables, notamment celles de l'Ordre des ingénieurs du Québec (OIQ) et de Professional Engineers Ontario (PEO), pour le périmètre défini au mandat."
+        )
+        text = text.replace(
+            "Toute requête de déplacement doit être transmise au moins 48 heures avant la date prévue.",
+            "Les travaux de terrain sont assujettis à l'accessibilité du site, à la localisation préalable des services souterrains et aux autorisations requises. Le client doit assurer un accès sécuritaire aux points d'investigation et signaler toute contrainte connue avant la mobilisation."
+        )
+        text = text.replace(
+            "Plans architecturaux fournis avant le début du mandat (si disponible);",
+            "Plans disponibles, localisation des ouvrages projetés et informations pertinentes sur le site fournis avant le début du mandat;"
+        )
+    return text
+
+
 def generate_pdf(data):
     global _pdf_department
     with _pdf_lock:
         _pdf_department = _dept(data)
         meta = DEPARTMENTS[_pdf_department]
         def paragraph(text, *args, **kwargs):
-            if isinstance(text, str):
-                # Keep the exact same structural ODS layout, but make the department
-                # identity and signatory title match the selected department.
-                text = text.replace('Président-Ingénieur en structure', meta['role'])
-                text = text.replace('Ingénierie des structures / Structural Engineering', meta['header'])
-            return _original_paragraph(text, *args, **kwargs)
+            # Only non-table/general ODS content is department-adapted here.
+            # The project fee/services table remains driven by the existing offer data.
+            return _original_paragraph(_department_text(text, _pdf_department, meta), *args, **kwargs)
         legacy.Paragraph = paragraph
         try:
             return _original_generate_pdf(data)
@@ -246,4 +277,4 @@ def handle_update(data):
     return _original_handle_update(data)
 
 legacy.handle_update = handle_update
-legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO WITH DEPARTMENT-SPECIFIC PDF FORMAT')
+legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO WITH DEPARTMENT-SPECIFIC NON-TABLE CONTENT')
