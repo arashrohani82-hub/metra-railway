@@ -6,9 +6,9 @@ from datetime import datetime
 import app as legacy
 
 DEPARTMENTS = {
-    'STR': {'label': 'Structure', 'header': 'Ingénierie des structures / Structural Engineering', 'folder': 'Offres Structure', 'role': 'Président – Ingénieur en structure'},
-    'CIV': {'label': 'Civil', 'header': 'Ingénierie civile / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président – Ingénieur'},
-    'GEO': {'label': 'Géotechnique', 'header': 'Ingénierie géotechnique / Geotechnical Engineering', 'folder': 'Offres Géotechnique', 'role': 'Président – Ingénieur'},
+    'STR': {'label': 'Structure', 'header': 'Ingénierie des structures / Structural Engineering', 'folder': 'Offres Structure', 'role': 'Président-Ingénieur en structure'},
+    'CIV': {'label': 'Civil', 'header': 'Ingénierie civile / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président-Ingénieur civil'},
+    'GEO': {'label': 'Géotechnique', 'header': 'Ingénierie géotechnique / Geotechnical Engineering', 'folder': 'Offres Géotechnique', 'role': 'Président-Ingénieur en géotechnique'},
 }
 DEPT_BY_UID = {}
 _pdf_lock = threading.Lock()
@@ -67,10 +67,7 @@ def get_next_project_num_from_onedrive():
     token = legacy.graph_access_token()
     sender = legacy.microsoft_email_config()['EMAIL_SENDER']
     roots = ['Metra Structure Inc/Offre de service']
-    roots.extend(
-        f"Metra Structure Inc/Offre de service/{year4}/{meta['folder']}"
-        for meta in DEPARTMENTS.values()
-    )
+    roots.extend(f"Metra Structure Inc/Offre de service/{year4}/{m['folder']}" for m in DEPARTMENTS.values())
     numbers = []
     pattern = re.compile(rf'ODS{year2}-(\d{{1,4}})(?:-|\b)', re.I)
     for root in roots:
@@ -142,10 +139,13 @@ def generate_pdf(data):
     global _pdf_department
     with _pdf_lock:
         _pdf_department = _dept(data)
-        role = DEPARTMENTS[_pdf_department]['role']
+        meta = DEPARTMENTS[_pdf_department]
         def paragraph(text, *args, **kwargs):
-            if isinstance(text, str) and text == 'Président-Ingénieur en structure' and _pdf_department != 'STR':
-                text = role
+            if isinstance(text, str):
+                # Keep the exact same structural ODS layout, but make the department
+                # identity and signatory title match the selected department.
+                text = text.replace('Président-Ingénieur en structure', meta['role'])
+                text = text.replace('Ingénierie des structures / Structural Engineering', meta['header'])
             return _original_paragraph(text, *args, **kwargs)
         legacy.Paragraph = paragraph
         try:
@@ -156,7 +156,6 @@ def generate_pdf(data):
 
 legacy.generate_pdf = generate_pdf
 
-# Preserve department BEFORE the original extraction replaces user_data.
 _original_extract_text = legacy.do_extract_text
 _original_extract_many = legacy.do_extract_many
 
@@ -247,4 +246,4 @@ def handle_update(data):
     return _original_handle_update(data)
 
 legacy.handle_update = handle_update
-legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO')
+legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO WITH DEPARTMENT-SPECIFIC PDF FORMAT')
