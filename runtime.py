@@ -12,6 +12,7 @@ from ods_router import app
 import ods_recovery  # noqa: E402,F401
 import department_ods_patch as department_patch  # noqa: E402
 import department_storage_fix  # noqa: E402,F401
+import email_branding_patch  # noqa: E402,F401
 
 import app as ods_app
 
