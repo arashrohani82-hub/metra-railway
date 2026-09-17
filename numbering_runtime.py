@@ -1,7 +1,10 @@
+import base64
+import html
 import logging
 import os
 import re
 import threading
+import urllib.parse
 from datetime import datetime
 
 import followup_persistence_runtime as guarded
@@ -28,12 +31,10 @@ def _active_department(data=None):
         code = str((legacy.user_data.get(str(uid), {}) or {}).get('department') or '').upper()
         if code in DEPARTMENT_FOLDERS:
             return code
-    # Safe legacy default: old offers were structural.
     return 'STR'
 
 
 def _numbers_from_local_history(year, department):
-    """Recover issued/saved ODS numbers for one department only."""
     pattern = re.compile(rf'ODS{year}-(\d{{1,4}})-{department}(?:-|\b)', re.I)
     numbers = []
     for records in (legacy.offers_history or {}).values():
@@ -53,7 +54,6 @@ def _numbers_from_local_history(year, department):
 
 
 def get_next_offer_number_max_plus_one():
-    """Return next ODS number from the selected department folder only."""
     year = datetime.now().strftime('%y')
     department = _active_department()
     folder = DEPARTMENT_FOLDERS[department]
@@ -72,30 +72,19 @@ def get_next_offer_number_max_plus_one():
     except Exception as exc:
         source = 'local history fallback'
         numbers = _numbers_from_local_history(year, department)
-        logger.exception(
-            'ODS department numbering unavailable for %s; using local history: %s',
-            root,
-            exc,
-        )
+        logger.exception('ODS department numbering unavailable for %s; using local history: %s', root, exc)
 
-    # Independent sequence for each department. Empty folder starts at 001.
     latest = max(numbers, default=0)
-    next_number = latest + 1
-    result = str(next_number).zfill(3)
+    result = str(latest + 1).zfill(3)
     logger.info(
         'ODS NUMBERING DEPARTMENT=%s latest=%s next=%s count=%s source=%s',
-        department,
-        latest,
-        result,
-        len(set(numbers)),
-        source,
+        department, latest, result, len(set(numbers)), source,
     )
     return result
 
 
 legacy.get_next_project_num = get_next_offer_number_max_plus_one
 
-# Keep the uid available while ask_next_missing asks for the suggested ODS number.
 _original_ask_next_missing = legacy.ask_next_missing
 
 
@@ -118,7 +107,6 @@ legacy.ask_next_missing = ask_next_missing_with_department_context
 
 
 def archive_ods_files_by_department(data, token, sender, pdf_bytes):
-    """Always archive final PDF/XLSX in the selected department folder."""
     department = _active_department(data)
     folder_name = DEPARTMENT_FOLDERS[department]
     legacy.create_onedrive_folder(token, sender, ODS_ROOT, folder_name)
@@ -127,18 +115,9 @@ def archive_ods_files_by_department(data, token, sender, pdf_bytes):
 
     excel = legacy.generate_excel(data)
     excel.seek(0)
+    legacy.upload_onedrive_path(token, sender, f'{target}/{base_name}.pdf', pdf_bytes, 'application/pdf')
     legacy.upload_onedrive_path(
-        token,
-        sender,
-        f'{target}/{base_name}.pdf',
-        pdf_bytes,
-        'application/pdf',
-    )
-    legacy.upload_onedrive_path(
-        token,
-        sender,
-        f'{target}/{base_name}.xlsx',
-        excel.read(),
+        token, sender, f'{target}/{base_name}.xlsx', excel.read(),
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
     logger.info('ODS ARCHIVE DEPARTMENT=%s TARGET=%s', department, target)
@@ -147,14 +126,125 @@ def archive_ods_files_by_department(data, token, sender, pdf_bytes):
 
 legacy.archive_ods_files = archive_ods_files_by_department
 
+
+def _greeting(data):
+    civility = str(data.get('civility') or '').strip()
+    name = str(data.get('name') or '').strip()
+    if civility and name:
+        return f'{civility} {name}'
+    return name or 'Madame, Monsieur'
+
+
+def _email_html(data, reference):
+    greeting = html.escape(_greeting(data))
+    address = html.escape(str(data.get('addr') or '').strip().replace('\n', ', '))
+    project_title = str(data.get('project_title') or data.get('service') or 'votre projet').strip()
+    project_title = html.escape(project_title)
+    department = _active_department(data)
+    role = {
+        'STR': 'Président – Ingénieur en structure',
+        'CIV': 'Président – Ingénieur civil',
+        'GEO': 'Président – Ingénieur',
+    }[department]
+    return f'''<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.55;color:#202124;">
+<p>Bonjour {greeting},</p>
+<p>Veuillez trouver ci-joint notre offre de service <strong>{html.escape(reference)}</strong> concernant le mandat « {project_title} » pour le projet situé au <strong>{address}</strong>.</p>
+<p>N'hésitez pas à nous contacter pour toute question.</p>
+<p>Cordialement,</p>
+<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:10px;">
+<tr>
+<td style="vertical-align:middle;padding-right:14px;"><img src="cid:metra-logo" alt="Metra Consultation" width="145" style="display:block;width:145px;height:auto;border:0;"></td>
+<td style="vertical-align:top;border-left:4px solid #f5a623;padding-left:14px;">
+<div style="font-size:18px;font-weight:700;color:#12324a;">Arash Rohani, ing., P.Eng.</div>
+<div style="font-size:15px;margin-top:2px;">{role}</div>
+<div style="font-size:16px;font-weight:700;margin-top:4px;">Metra Consultation Inc.</div>
+<div style="font-size:14px;margin-top:5px;"><a href="mailto:a.rohani@metraconsultation.ca" style="color:#1155cc;">a.rohani@metraconsultation.ca</a> | <a href="tel:+14388674131" style="color:#1155cc;">(438) 867-4131</a></div>
+<div style="font-size:14px;margin-top:2px;"><a href="https://metraconsultation.ca" style="color:#1155cc;">metraconsultation.ca</a></div>
+</td>
+</tr>
+</table>
+</div>'''
+
+
+def send_ods_email_branded(data):
+    """Active production sender: clean body + CID logo + new website."""
+    recipient = legacy.valid_client_email(data.get('email'))
+    if not recipient:
+        raise ValueError('Le courriel du client est manquant ou invalide.')
+
+    reference = legacy.offer_reference(data)
+    subject = f'Offre de service {reference} - {data.get("project_title") or data.get("service") or "Projet"}'
+    pdf = legacy.generate_pdf(data)
+    pdf.seek(0)
+    pdf_bytes = pdf.read()
+    filename = '{}_{}.pdf'.format(
+        data.get('odsNum', 'ODS'),
+        (data.get('name') or 'client').replace(' ', '-'),
+    )
+
+    try:
+        with open(legacy.LOGOS['metra'], 'rb') as logo_file:
+            logo_b64 = base64.b64encode(logo_file.read()).decode('ascii')
+    except Exception as exc:
+        logger.exception('Unable to load Metra email logo: %s', exc)
+        logo_b64 = ''
+
+    attachments = [{
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        'name': filename,
+        'contentType': 'application/pdf',
+        'contentBytes': base64.b64encode(pdf_bytes).decode('ascii'),
+    }]
+    if logo_b64:
+        attachments.append({
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            'name': 'metra-logo.png',
+            'contentType': 'image/png',
+            'contentBytes': logo_b64,
+            'contentId': 'metra-logo',
+            'isInline': True,
+        })
+
+    payload = {
+        'message': {
+            'subject': subject,
+            'body': {'contentType': 'HTML', 'content': _email_html(data, reference)},
+            'toRecipients': [{'emailAddress': {'address': recipient}}],
+            'attachments': attachments,
+        },
+        'saveToSentItems': True,
+    }
+    config = legacy.microsoft_email_config()
+    token = legacy.graph_access_token()
+    sender = urllib.parse.quote(config['EMAIL_SENDER'], safe='')
+    response = legacy.req.post(
+        f'https://graph.microsoft.com/v1.0/users/{sender}/sendMail',
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        json=payload,
+        timeout=45,
+    )
+    if response.status_code != 202:
+        logger.error('Microsoft sendMail error: %s %s', response.status_code, response.text[:500])
+        raise RuntimeError("Microsoft 365 a refusé l'envoi du courriel.")
+
+    archive_files = []
+    archive_error = None
+    try:
+        archive_files = archive_ods_files_by_department(data, token, config['EMAIL_SENDER'], pdf_bytes)
+    except Exception as exc:
+        archive_error = str(exc)
+        logger.error('OneDrive ODS archive error: %s', exc)
+
+    logger.info('ODS BRANDED EMAIL SENT reference=%s inline_logo=%s website=metraconsultation.ca', reference, bool(logo_b64))
+    return recipient, subject, archive_files, archive_error
+
+
+legacy.send_ods_email = send_ods_email_branded
+
 logger.info('ODS NUMBERING POLICY: PER-DEPARTMENT HIGHEST + 1')
 logger.info('ODS ARCHIVE POLICY: Structure/Civil/Geotechnic folders')
+logger.info('ODS EMAIL POLICY: DIRECT BRANDED SENDER + CID LOGO + metraconsultation.ca')
 
-# Load the lead-priority layer last so it can wrap the complete follow-up flow.
 import offer_potential_runtime  # noqa: E402,F401
-
-# The household assistant is a separate Telegram bot sharing this web process.
-# It remains completely inactive until HOUSEHOLD_BOT_TOKEN is configured.
 from household_bot import init_household_bot  # noqa: E402
-
 init_household_bot(app)
