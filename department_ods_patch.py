@@ -1,15 +1,42 @@
 """Department-aware ODS workflow for Structure, Civil and Geotechnical offers."""
+import json
 import re
 import threading
 from datetime import datetime
 
 import app as legacy
 
+ODS_ROOT = 'Metra Structure Inc/Offre de service'
 DEPARTMENTS = {
-    'STR': {'label': 'Structure', 'header': 'Ingénierie des structures / Structural Engineering', 'folder': 'Offres Structure', 'role': 'Président-Ingénieur en structure'},
-    'CIV': {'label': 'Civil', 'header': 'Génie civil / Civil Engineering', 'folder': 'Offres Civil', 'role': 'Président-Ingénieur civil'},
-    'GEO': {'label': 'Géotechnique', 'header': 'Génie géotechnique / Geotechnical Engineering', 'folder': 'Offres Géotechnique', 'role': 'Président-Ingénieur'},
+    'STR': {
+        'label': 'Structure',
+        'header': 'Ingénierie des structures / Structural Engineering',
+        'folder': 'Structure',
+        'role': 'Président-Ingénieur en structure',
+        'discipline': 'structural engineering',
+        'discipline_fr': 'ingénierie des structures',
+        'sequence': 'review of available documents, site work/relevé, structural analysis, design or technical recommendations, and the requested signed/sealed deliverable',
+    },
+    'CIV': {
+        'label': 'Civil',
+        'header': 'Génie civil / Civil Engineering',
+        'folder': 'Civil',
+        'role': 'Président-Ingénieur civil',
+        'discipline': 'civil engineering',
+        'discipline_fr': 'génie civil',
+        'sequence': 'review of available documents and surveys, site observations/relevé when justified, civil analysis and calculations, design/recommendations, and the requested plans/report or signed/sealed deliverable',
+    },
+    'GEO': {
+        'label': 'Géotechnique',
+        'header': 'Génie géotechnique / Geotechnical Engineering',
+        'folder': 'Geotechnic',
+        'role': 'Président-Ingénieur',
+        'discipline': 'geotechnical engineering',
+        'discipline_fr': 'génie géotechnique',
+        'sequence': 'review of available site information, field investigation/testing only when requested or justified, interpretation of soil/rock conditions, geotechnical analysis and recommendations, and the requested report or signed/sealed deliverable',
+    },
 }
+
 DEPT_BY_UID = {}
 _pdf_lock = threading.Lock()
 _pdf_department = 'STR'
@@ -50,10 +77,10 @@ legacy.build_ods_num = build_ods_num
 
 def offer_reference(data):
     ods = str(data.get('odsNum') or '')
-    match = re.search(r'ODS\d{2}-\d{3}-(?:STR|CIV|GEO)-[A-Z]{3}', ods, re.I)
+    match = re.search(r'ODS\d{2}-\d{3,4}-(?:STR|CIV|GEO)-[A-Z]{3}', ods, re.I)
     if match:
         return match.group(0).upper()
-    old = re.search(r'ODS\d{2}-\d{3}-[A-Z]{3}', ods, re.I)
+    old = re.search(r'ODS\d{2}-\d{3,4}(?:-[A-Z]{3})?', ods, re.I)
     if old:
         return old.group(0).upper()
     return legacy.safe_archive_filename(ods or 'ODS')
@@ -61,45 +88,74 @@ def offer_reference(data):
 legacy.offer_reference = offer_reference
 
 
+def _archive_roots_to_scan():
+    year = datetime.now().strftime('%Y')
+    roots = [ODS_ROOT]
+    for meta in DEPARTMENTS.values():
+        roots.append(f"{ODS_ROOT}/{meta['folder']}")
+    # Backward compatibility with the short-lived year/"Offres ..." layout.
+    roots.extend([
+        f'{ODS_ROOT}/{year}/Offres Structure',
+        f'{ODS_ROOT}/{year}/Offres Civil',
+        f'{ODS_ROOT}/{year}/Offres Géotechnique',
+    ])
+    return roots
+
+
 def get_next_project_num_from_onedrive():
     year2 = datetime.now().strftime('%y')
-    year4 = datetime.now().strftime('%Y')
     token = legacy.graph_access_token()
     sender = legacy.microsoft_email_config()['EMAIL_SENDER']
-    roots = ['Metra Structure Inc/Offre de service']
-    roots.extend(f"Metra Structure Inc/Offre de service/{year4}/{m['folder']}" for m in DEPARTMENTS.values())
     numbers = []
     pattern = re.compile(rf'ODS{year2}-(\d{{1,4}})(?:-|\b)', re.I)
-    for root in roots:
+    for root in _archive_roots_to_scan():
         try:
             items = legacy.list_onedrive_children(token, sender, root)
         except Exception:
             continue
         for item in items:
-            m = pattern.search(str(item.get('name') or ''))
-            if m:
-                numbers.append(int(m.group(1)))
+            match = pattern.search(str(item.get('name') or ''))
+            if match:
+                numbers.append(int(match.group(1)))
     return str(max(numbers, default=80) + 1).zfill(3)
 
 legacy.get_next_project_num = get_next_project_num_from_onedrive
 
 
 def archive_ods_files(data, token, sender, pdf_bytes):
-    root = 'Metra Structure Inc/Offre de service'
-    year = datetime.now().strftime('%Y')
-    legacy.create_onedrive_folder(token, sender, root, year)
-    year_root = f'{root}/{year}'
+    """Archive into the three department folders visible in OneDrive."""
     dept_folder = DEPARTMENTS[_dept(data)]['folder']
-    legacy.create_onedrive_folder(token, sender, year_root, dept_folder)
-    folder = f'{year_root}/{dept_folder}'
+    legacy.create_onedrive_folder(token, sender, ODS_ROOT, dept_folder)
+    folder = f'{ODS_ROOT}/{dept_folder}'
     base_name = legacy.safe_archive_filename(data.get('odsNum') or 'ODS')
     excel = legacy.generate_excel(data)
     excel.seek(0)
     legacy.upload_onedrive_path(token, sender, f'{folder}/{base_name}.pdf', pdf_bytes, 'application/pdf')
-    legacy.upload_onedrive_path(token, sender, f'{folder}/{base_name}.xlsx', excel.read(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    return [f'{folder}/{base_name}.pdf', f'{folder}/{base_name}.xlsx']
+    legacy.upload_onedrive_path(
+        token,
+        sender,
+        f'{folder}/{base_name}.xlsx',
+        excel.read(),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    return [f'{dept_folder}/{base_name}.pdf', f'{dept_folder}/{base_name}.xlsx']
 
 legacy.archive_ods_files = archive_ods_files
+
+
+def project_year_and_code(data):
+    """Keep the technical 3-letter code for project folders, not STR/CIV/GEO."""
+    ods = str(data.get('odsNum') or '')
+    current = re.search(r'ODS(\d{2})-\d{3,4}-(?:STR|CIV|GEO)-([A-Z]{3})', ods, re.I)
+    if current:
+        return f"20{current.group(1)}", current.group(2).upper()
+    old = re.search(r'ODS(\d{2})-\d{3,4}-([A-Z]{3})', ods, re.I)
+    if old:
+        return f"20{old.group(1)}", old.group(2).upper()
+    return datetime.now().strftime('%Y'), str(data.get('file_code') or 'PRJ').upper()[:3]
+
+legacy.project_year_and_code = project_year_and_code
+
 
 _original_generate_pdf = legacy.generate_pdf
 _original_paragraph = legacy.Paragraph
@@ -174,10 +230,10 @@ def generate_pdf(data):
     with _pdf_lock:
         _pdf_department = _dept(data)
         meta = DEPARTMENTS[_pdf_department]
+
         def paragraph(text, *args, **kwargs):
-            # Only non-table/general ODS content is department-adapted here.
-            # The project fee/services table remains driven by the existing offer data.
             return _original_paragraph(_department_text(text, _pdf_department, meta), *args, **kwargs)
+
         legacy.Paragraph = paragraph
         try:
             return _original_generate_pdf(data)
@@ -186,6 +242,88 @@ def generate_pdf(data):
             _pdf_department = 'STR'
 
 legacy.generate_pdf = generate_pdf
+
+
+_original_ask_desc_options = legacy.ask_desc_options
+
+
+def ask_desc_options(chat_id, uid):
+    """Generate discipline-specific technical ODS content."""
+    uid = str(uid)
+    d = legacy.user_data.get(uid, {})
+    code = _dept(d, uid)
+    meta = DEPARTMENTS[code]
+    try:
+        legacy.tg(chat_id, "✍️ Préparation du contenu technique de l’ODS...")
+        service = d.get('service', '')
+        raw_desc = d.get('desc', '')
+        property_type = d.get('property_type', '')
+        addr = d.get('addr', '')
+        prompt = (
+            f"You prepare {meta['discipline']} offers of service for {legacy.DISPLAY_BRAND}. "
+            f"Write in mature, project-specific French appropriate to {meta['discipline_fr']}. "
+            "Never invent a test, deliverable, quantity, investigation extent, code review, design task, "
+            "or professional commitment that the client did not request or that the context does not justify. "
+            "Avoid promotional wording. Prepare ONE proposal only, using this exact JSON schema: "
+            "{\"project_title\":\"short professional title\","
+            "\"file_code\":\"relevant 3-letter uppercase technical code\","
+            "\"short_mandate\":\"one short professional paragraph, maximum 70 words\","
+            "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\",\"line 4\",\"line 5 if justified\"]}. "
+            "Use 3 to 5 service lines. Each line must be a concrete engineering action or deliverable, short enough for an ODS table, "
+            "and end without a period. Every line must be complete. Never use an ellipsis and never end with an unfinished connector. "
+            f"Order services logically for this discipline: {meta['sequence']}. "
+            "Do not add generic filler such as coordination, availability, meetings, communications, or administration unless requested. "
+            "Use 'le cas échéant' only for genuinely conditional work. "
+            "Client request/context: " + raw_desc + ". "
+            "Initially detected service: " + service + ". Property/site: " + property_type + ". "
+            "Project address: " + addr + ". Return ONLY valid JSON."
+        )
+        response = legacy.client.messages.create(
+            model='claude-sonnet-4-6', max_tokens=800,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        result = ''.join(b.text for b in response.content if hasattr(b, 'text'))
+        result = result.replace('```json', '').replace('```', '').strip()
+        proposal = json.loads(result)
+        service_lines = [
+            cleaned + ';'
+            for line in proposal.get('service_lines', [])[:5]
+            if (cleaned := legacy._clean_service_line(line))
+        ]
+        short_mandate = str(proposal.get('short_mandate') or raw_desc).strip()
+        d['project_title'] = str(proposal.get('project_title') or service).strip()
+        d['file_code'] = re.sub(r'[^A-Z]', '', str(proposal.get('file_code') or 'ODS').upper())[:3].ljust(3, 'X')
+        d['desc'] = short_mandate
+        d['service_lines'] = service_lines
+        d['desc_options'] = [short_mandate]
+        d['department'] = code
+        legacy.user_data[uid] = d
+        legacy.save_user_data()
+        provisional_name = f"ODS{datetime.now().strftime('%y')}-XXX-{code}-{d['file_code']}-{d['project_title']}"
+        msg_lines = [
+            '📋 Proposition technique', '',
+            'Département : ' + meta['label'],
+            'Titre : ' + d['project_title'],
+            'Nom du fichier : ' + provisional_name,
+            '', 'Mandat court :', short_mandate, '', 'Services :',
+        ]
+        msg_lines.extend('• ' + line for line in service_lines)
+        legacy.tg(chat_id, '\n'.join(msg_lines))
+        legacy.tg(
+            chat_id,
+            "Confirmer ce contenu avant de compléter les paramètres de l’ODS?",
+            [
+                [{'text': '✅ Confirmer', 'callback_data': 'desc_0'}],
+                [{'text': '✏️ Modifier le contenu technique', 'callback_data': 'desc_custom'}],
+            ],
+        )
+    except Exception as exc:
+        legacy.logger.exception('department-aware ask_desc_options error: %s', exc)
+        # Fall back to the proven legacy flow rather than blocking the offer.
+        return _original_ask_desc_options(chat_id, uid)
+
+legacy.ask_desc_options = ask_desc_options
+
 
 _original_extract_text = legacy.do_extract_text
 _original_extract_many = legacy.do_extract_many
@@ -221,6 +359,7 @@ def do_extract_many(chat_id, uid, file_ids):
 legacy.do_extract_text = do_extract_text
 legacy.do_extract_many = do_extract_many
 
+
 _original_handle_update = legacy.handle_update
 
 
@@ -236,7 +375,10 @@ def handle_update(data):
             if code not in DEPARTMENTS:
                 return
             try:
-                legacy.req.post(f'https://api.telegram.org/bot{legacy.BOT_TOKEN}/answerCallbackQuery', json={'callback_query_id': cb.get('id')}, timeout=3)
+                legacy.req.post(
+                    f'https://api.telegram.org/bot{legacy.BOT_TOKEN}/answerCallbackQuery',
+                    json={'callback_query_id': cb.get('id')}, timeout=3,
+                )
             except Exception:
                 pass
             DEPT_BY_UID[uid] = code
@@ -270,11 +412,14 @@ def handle_update(data):
     if msg and (msg.get('text') or msg.get('photo')):
         uid = str(msg.get('from', {}).get('id'))
         text = msg.get('text', '')
-        menu_commands = {'/annuler','/cancel','❌ Annuler','/aide','/help','❓ Aide','📁 Convertir une offre en projet','🧾 Facturation','🧾 Facturer un projet'}
+        menu_commands = {
+            '/annuler', '/cancel', '❌ Annuler', '/aide', '/help', '❓ Aide',
+            '📁 Convertir une offre en projet', '🧾 Facturation', '🧾 Facturer un projet',
+        }
         if text not in menu_commands and uid not in DEPT_BY_UID and not legacy.user_data.get(uid, {}).get('department'):
             ask_department(msg.get('chat', {}).get('id'), uid)
             return
     return _original_handle_update(data)
 
 legacy.handle_update = handle_update
-legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE: STR/CIV/GEO WITH DEPARTMENT-SPECIFIC NON-TABLE CONTENT')
+legacy.logger.warning('DEPARTMENT ODS PATCH ACTIVE v3: STR/CIV/GEO folders + discipline content + project code fix')
