@@ -5,7 +5,8 @@ import app as command_center
 # Extra bots managed outside the original seven-bot registry.
 EXTRA_BOTS = [
     {"key":"shopping","name":"Home Shopping Manager","emoji":"🛒","username_env":"SHOPPING_BOT_USERNAME","service_url_env":"SHOPPING_SERVICE_URL","repo":"arashrohani82-hub/metra-railway"},
-    {"key":"arvin","name":"Arvin Daily Tracker","emoji":"👦","username_env":"ARVIN_BOT_USERNAME","service_url_env":"ARVIN_SERVICE_URL","repo":"arashrohani82-hub/arvin-daily-tracker"},\n    {"key":"fitness","name":"87 Mission","emoji":"💪","username_env":"FITNESS_BOT_USERNAME","service_url_env":"FITNESS_SERVICE_URL","repo":"arashrohani82-hub/arash-87-mission-bot"},
+    {"key":"arvin","name":"Arvin Daily Tracker","emoji":"👦","username_env":"ARVIN_BOT_USERNAME","service_url_env":"ARVIN_SERVICE_URL","repo":"arashrohani82-hub/arvin-daily-tracker"},
+    {"key":"fitness","name":"87 Mission","emoji":"💪","username_env":"FITNESS_BOT_USERNAME","service_url_env":"FITNESS_SERVICE_URL","repo":"arashrohani82-hub/arash-87-mission-bot"},
 ]
 for _bot in EXTRA_BOTS:
     if not any(b.get("key") == _bot["key"] for b in command_center.BOTS):
@@ -49,12 +50,15 @@ def launcher_menu():
         [command_center.bot_open_button("guardian", "🛡 Guardian"), command_center.bot_open_button("intelligence", "🌎 Intelligence")],
         [command_center.bot_open_button("language", "🗣 Language"), command_center.bot_open_button("website", "🌐 Website")],
         [command_center.bot_open_button("inspection", "🏗 Inspection / Report")],
-        [command_center.bot_open_button("shopping", "🛒 Home Shopping"), command_center.bot_open_button("arvin", "👦 Arvin Daily")],\n        [command_center.bot_open_button("fitness", "💪 87 Mission")],
+        [command_center.bot_open_button("shopping", "🛒 Home Shopping"), command_center.bot_open_button("arvin", "👦 Arvin Daily")],
+        [command_center.bot_open_button("fitness", "💪 87 Mission")],
     ]
 command_center.main_menu = launcher_menu
 
 def launcher_home(chat_id):
-    command_center.send_message(chat_id, "🏢 METRA COMMAND CENTER\n\nSelect a destination:", launcher_menu())
+    command_center.send_message(chat_id, "🏢 METRA COMMAND CENTER
+
+Select a destination:", launcher_menu())
 command_center.show_home = launcher_home
 
 _original_send_message = command_center.send_message
@@ -106,12 +110,24 @@ def smart_route_image(user_id, chat_id, file_id):
             data = _json_or_error(response, "ODS");ods = data.get("ods") or {};username = command_center.bot_username(command_center.get_bot("ods"));keyboard=[]
             if username:keyboard.append([{"text":"▶️ ادامه در ODS","url":f"https://t.me/{username}"}])
             keyboard.append([{"text":"🏠 Main menu","callback_data":"home"}])
-            text=("🧾 درخواست مشتری شناسایی شد\n\n"f"👤 مشتری: {ods.get('name') or '—'}\n"f"📧 ایمیل: {ods.get('email') or '—'}\n"f"📞 تلفن: {ods.get('phone') or '—'}\n"f"📍 پروژه: {ods.get('addr') or '—'}\n"f"🔧 سرویس: {ods.get('service') or '—'}\n"f"💰 پیشنهاد اولیه: ${int(ods.get('price') or 0):,} CAD\n"f"📄 شماره اولیه: {ods.get('odsNum') or '—'}\n\nاطلاعات داخل Session ربات ODS ذخیره شد.")
+            text=("🧾 درخواست مشتری شناسایی شد
+
+"f"👤 مشتری: {ods.get('name') or '—'}
+"f"📧 ایمیل: {ods.get('email') or '—'}
+"f"📞 تلفن: {ods.get('phone') or '—'}
+"f"📍 پروژه: {ods.get('addr') or '—'}
+"f"🔧 سرویس: {ods.get('service') or '—'}
+"f"💰 پیشنهاد اولیه: ${int(ods.get('price') or 0):,} CAD
+"f"📄 شماره اولیه: {ods.get('odsNum') or '—'}
+
+اطلاعات داخل Session ربات ODS ذخیره شد.")
             command_center.send_message(chat_id,text,keyboard);return
         labels={"inspection":"🏗 Inspection / Report","guardian":"🛡 Guardian","unknown":"❓ نامشخص"}
-        command_center.send_message(chat_id,f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})\nاتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.",[[{"text":"🏠 Main menu","callback_data":"home"}]])
+        command_center.send_message(chat_id,f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})
+اتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.",[[{"text":"🏠 Main menu","callback_data":"home"}]])
     except Exception as exc:
-        command_center.logger.exception("Smart image routing failed");command_center.send_message(chat_id,f"❌ Smart Router خطا داد:\n{str(exc)[:260]}")
+        command_center.logger.exception("Smart image routing failed");command_center.send_message(chat_id,f"❌ Smart Router خطا داد:
+{str(exc)[:260]}")
 
 command_center.route_receipt_photo = smart_route_image
 app = command_center.app
