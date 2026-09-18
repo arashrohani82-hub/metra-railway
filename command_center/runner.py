@@ -56,9 +56,7 @@ def launcher_menu():
 command_center.main_menu = launcher_menu
 
 def launcher_home(chat_id):
-    command_center.send_message(chat_id, "🏢 METRA COMMAND CENTER
-
-Select a destination:", launcher_menu())
+    command_center.send_message(chat_id, "🏢 METRA COMMAND CENTER\\n\\nSelect a destination:", launcher_menu())
 command_center.show_home = launcher_home
 
 _original_send_message = command_center.send_message
