@@ -5,7 +5,7 @@ import app as command_center
 # Extra bots managed outside the original seven-bot registry.
 EXTRA_BOTS = [
     {"key":"shopping","name":"Home Shopping Manager","emoji":"🛒","username_env":"SHOPPING_BOT_USERNAME","service_url_env":"SHOPPING_SERVICE_URL","repo":"arashrohani82-hub/metra-railway"},
-    {"key":"arvin","name":"Arvin Daily Tracker","emoji":"👦","username_env":"ARVIN_BOT_USERNAME","service_url_env":"ARVIN_SERVICE_URL","repo":"arashrohani82-hub/arvin-daily-tracker"},
+    {"key":"arvin","name":"Arvin Daily Tracker","emoji":"👦","username_env":"ARVIN_BOT_USERNAME","service_url_env":"ARVIN_SERVICE_URL","repo":"arashrohani82-hub/arvin-daily-tracker"},\n    {"key":"fitness","name":"87 Mission","emoji":"💪","username_env":"FITNESS_BOT_USERNAME","service_url_env":"FITNESS_SERVICE_URL","repo":"arashrohani82-hub/arash-87-mission-bot"},
 ]
 for _bot in EXTRA_BOTS:
     if not any(b.get("key") == _bot["key"] for b in command_center.BOTS):
@@ -49,7 +49,7 @@ def launcher_menu():
         [command_center.bot_open_button("guardian", "🛡 Guardian"), command_center.bot_open_button("intelligence", "🌎 Intelligence")],
         [command_center.bot_open_button("language", "🗣 Language"), command_center.bot_open_button("website", "🌐 Website")],
         [command_center.bot_open_button("inspection", "🏗 Inspection / Report")],
-        [command_center.bot_open_button("shopping", "🛒 Home Shopping"), command_center.bot_open_button("arvin", "👦 Arvin Daily")],
+        [command_center.bot_open_button("shopping", "🛒 Home Shopping"), command_center.bot_open_button("arvin", "👦 Arvin Daily")],\n        [command_center.bot_open_button("fitness", "💪 87 Mission")],
     ]
 command_center.main_menu = launcher_menu
 
