@@ -33,6 +33,9 @@ BOTS = [
     {"key":"language","name":"Language Coach","emoji":"🗣","username_env":"LANGUAGE_BOT_USERNAME","service_url_env":"LANGUAGE_SERVICE_URL","repo":"arashrohani82-hub/metra-language-coach-bot"},
     {"key":"website","name":"Website Manager","emoji":"🌐","username_env":"WEBSITE_BOT_USERNAME","service_url_env":"WEBSITE_SERVICE_URL","repo":"arashrohani82-hub/metra-website-manager-bot"},
     {"key":"inspection","name":"Inspection / Report","emoji":"🏗","username_env":"INSPECTION_BOT_USERNAME","service_url_env":"INSPECTION_SERVICE_URL","repo":"arashrohani82-hub/bsf-inspection-bot"},
+    {"key":"shopping","name":"Home Shopping Manager","emoji":"🛒","username_env":"SHOPPING_BOT_USERNAME","service_url_env":"SHOPPING_SERVICE_URL","repo":"arashrohani82-hub/metra-railway"},
+    {"key":"arvin","name":"Arvin Daily Tracker","emoji":"👦","username_env":"ARVIN_BOT_USERNAME","service_url_env":"ARVIN_SERVICE_URL","repo":"arashrohani82-hub/arvin-daily-tracker"},
+    {"key":"fitness","name":"87 Mission","emoji":"💪","username_env":"FITNESS_BOT_USERNAME","service_url_env":"FITNESS_SERVICE_URL","repo":"arashrohani82-hub/arash-87-mission-bot"},
 ]
 
 
@@ -79,7 +82,8 @@ def main_menu():
         [bot_open_button("guardian", "🛡 Guardian"), bot_open_button("intelligence", "🌎 Intelligence")],
         [bot_open_button("language", "🗣 Language"), bot_open_button("website", "🌐 Website")],
         [bot_open_button("inspection", "🏗 Inspection / Report")],
-        [{"text":"📊 CEO Dashboard","callback_data":"dashboard"},{"text":"⚙️ Bots & System","callback_data":"system"}],
+        [bot_open_button("shopping", "🛒 Home Shopping"), bot_open_button("arvin", "👦 Arvin Daily")],
+        [bot_open_button("fitness", "💪 87 Mission")],
     ]
 
 
