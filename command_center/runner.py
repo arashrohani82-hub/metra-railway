@@ -108,24 +108,13 @@ def smart_route_image(user_id, chat_id, file_id):
             data = _json_or_error(response, "ODS");ods = data.get("ods") or {};username = command_center.bot_username(command_center.get_bot("ods"));keyboard=[]
             if username:keyboard.append([{"text":"▶️ ادامه در ODS","url":f"https://t.me/{username}"}])
             keyboard.append([{"text":"🏠 Main menu","callback_data":"home"}])
-            text=("🧾 درخواست مشتری شناسایی شد
-
-"f"👤 مشتری: {ods.get('name') or '—'}
-"f"📧 ایمیل: {ods.get('email') or '—'}
-"f"📞 تلفن: {ods.get('phone') or '—'}
-"f"📍 پروژه: {ods.get('addr') or '—'}
-"f"🔧 سرویس: {ods.get('service') or '—'}
-"f"💰 پیشنهاد اولیه: ${int(ods.get('price') or 0):,} CAD
-"f"📄 شماره اولیه: {ods.get('odsNum') or '—'}
-
-اطلاعات داخل Session ربات ODS ذخیره شد.")
-            command_center.send_message(chat_id,text,keyboard);return
-        labels={"inspection":"🏗 Inspection / Report","guardian":"🛡 Guardian","unknown":"❓ نامشخص"}
-        command_center.send_message(chat_id,f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})
-اتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.",[[{"text":"🏠 Main menu","callback_data":"home"}]])
+            text = (f"🧾 درخواست مشتری شناسایی شد\\n\\n👤 مشتری: {ods.get('name') or '—'}\\n📧 ایمیل: {ods.get('email') or '—'}\\n📞 تلفن: {ods.get('phone') or '—'}\\n📍 پروژه: {ods.get('addr') or '—'}\\n🔧 سرویس: {ods.get('service') or '—'}\\n💰 پیشنهاد اولیه: ${int(ods.get('price') or 0):,} CAD\\n📄 شماره اولیه: {ods.get('odsNum') or '—'}\\n\\nاطلاعات داخل Session ربات ODS ذخیره شد.")
+            command_center.send_message(chat_id, text, keyboard); return
+        labels = {"inspection":"🏗 Inspection / Report","guardian":"🛡 Guardian","unknown":"❓ نامشخص"}
+        command_center.send_message(chat_id, f"🧠 Smart Router: {labels.get(route, route)} ({confidence:.0%})\\nاتصال مستقیم این مسیر در مرحله بعد فعال می‌شود.", [[{"text":"🏠 Main menu","callback_data":"home"}]])
     except Exception as exc:
-        command_center.logger.exception("Smart image routing failed");command_center.send_message(chat_id,f"❌ Smart Router خطا داد:
-{str(exc)[:260]}")
+        command_center.logger.exception("Smart image routing failed")
+        command_center.send_message(chat_id, f"❌ Smart Router خطا داد:\\n{str(exc)[:260]}")
 
 command_center.route_receipt_photo = smart_route_image
 app = command_center.app
