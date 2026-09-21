@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -138,10 +139,28 @@ def update_list_status(reference, status):
             raise RuntimeError("offre introuvable dans List.xlsx")
         output = io.BytesIO()
         workbook.save(output)
-        legacy.upload_onedrive_path(
-            token, owner, legacy.ODS_LIST_PATH, output.getvalue(),
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        payload = output.getvalue()
+        # Excel/OneDrive can briefly lock List.xlsx (Graph returns HTTP 423).
+        # Retry the status write instead of forcing the user to repeat the action.
+        last_error = None
+        for attempt in range(4):
+            try:
+                legacy.upload_onedrive_path(
+                    token, owner, legacy.ODS_LIST_PATH, payload,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                last_error = None
+                break
+            except RuntimeError as exc:
+                last_error = exc
+                if attempt == 3:
+                    break
+                time.sleep(2 ** attempt)
+        if last_error:
+            raise RuntimeError(
+                "List.xlsx est temporairement verrouillé par OneDrive/Excel. "
+                "Fermez le fichier s’il est ouvert et réessayez dans quelques secondes."
+            ) from last_error
 
 
 def update_list_email(reference, email_address):
