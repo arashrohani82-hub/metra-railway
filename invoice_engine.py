@@ -24,6 +24,43 @@ GST_RATE = 0.05
 QST_RATE = 0.09975
 
 
+def invoice_number_from_filename(filename, year=None):
+    """Extract an invoice sequence number without mistaking the year for it."""
+    name = os.path.basename(str(filename or "")).strip()
+    if not name:
+        return None
+
+    wanted_year = str(year or date.today().strftime("%y"))[-2:]
+
+    # Current format: FAC26-056_P26-031-AGR.pdf (a leading ~ is tolerated).
+    match = re.search(
+        r"(?:^|[^A-Z0-9])~?FAC(?:TURE)?[\s_-]*(\d{2})[\s_-]+(\d{1,4})(?:\D|$)",
+        name,
+        re.I,
+    )
+    if match:
+        file_year, number = match.groups()
+        return int(number) if file_year == wanted_year else None
+
+    # Legacy format: FAC P26-055-RME.pdf / FAC_P26-049-AGR.xlsx.
+    match = re.search(
+        r"(?:^|[^A-Z0-9])~?FAC(?:TURE)?[\s_-]*P(\d{2})-(\d{1,4})(?:\D|$)",
+        name,
+        re.I,
+    )
+    if match:
+        file_year, number = match.groups()
+        return int(number) if file_year == wanted_year else None
+
+    # Very old yearless names: Facture 048.pdf, Invoice-048.pdf, etc.
+    match = re.search(
+        r"(?:^|[^A-Z0-9])(?:FACTURE|INVOICE|FAC)[^0-9]*(\d{1,4})(?:\D|$)",
+        name,
+        re.I,
+    )
+    return int(match.group(1)) if match else None
+
+
 def invoice_values(contract_value, percentage=None, fixed_amount=None):
     contract = round(float(contract_value), 2)
     if fixed_amount is not None:
