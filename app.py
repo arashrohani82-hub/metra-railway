@@ -720,21 +720,23 @@ def _clean_service_line(value):
 
 
 def _build_service_desc(data):
-    """Up to 4 compact technical lines for the PDF table cell."""
-    # Priority: service_lines from extraction
+    """Build the complete technical scope for the PDF fee table.
+
+    Do not silently truncate the number of scope items or cut sentences. The
+    table cell is allowed to grow vertically; ReportLab will use the available
+    page space. Extraction already keeps the scope concise enough for an ODS.
+    """
     raw = data.get('service_lines') or []
     if not raw:
         import re as _re
         desc = data.get('desc') or data.get('service') or ''
-        raw = [p.strip() for p in _re.split(r'[;.\n]', desc) if p.strip()]
+        raw = [p.strip() for p in _re.split(r'[;\n]', desc) if p.strip()]
     result = []
-    for line in raw[:4]:
+    for line in raw:
         compact_line = _clean_service_line(line)
         if not compact_line:
             continue
-        if len(compact_line) > 140:
-            compact_line = compact_line[:140].rsplit(' ', 1)[0].rstrip(' ,;:–-')
-        result.append('• ' + compact_line + ';')
+        result.append('• ' + compact_line.rstrip(' ;') + ';')
     return '<br/>'.join(result) if result else data.get('service', '')
 
 
@@ -883,7 +885,7 @@ def generate_excel(data):
     ws['B10'] = 'Courriel : ' + contact['email']
     ws['B12'] = f"{data.get('odsNum','ODS')}-{(data.get('name') or 'client').replace(' ','-')}"
     service_lines = data.get('service_lines') or []
-    ws['B47'] = '\n'.join(service_lines[:5]) or data.get('desc', data.get('service',''))
+    ws['B47'] = '\n'.join(service_lines) or data.get('desc', data.get('service',''))
     ws['C47'] = 'Forfait'
     ws['D47'] = 1
     ws['E47'] = float(data['price'])
