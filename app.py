@@ -18,7 +18,10 @@ from openpyxl.workbook.properties import CalcProperties
 import random
 import requests as req
 from technical_content import parse_custom_technical_content
-from invoice_engine import generate_invoice_pdf, invoice_filename, invoice_values
+from invoice_engine import (
+    generate_invoice_pdf, invoice_filename, invoice_values,
+    invoice_number_from_filename,
+)
 from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
@@ -1845,15 +1848,16 @@ def do_send_email(chat_id, uid):
 
 
 def next_invoice_number(items, year=None):
+    """Return the next invoice sequence from current and legacy filenames."""
     year = year or datetime.now().strftime('%y')
     numbers = []
     for item in items:
-        name = str(item.get('name') or '')
-        match = re.search(rf'FAC\s+P{year}-(\d{{1,4}})(?:-|\b)', name, re.I)
-        if not match:
-            match = re.search(r'(?:facture|invoice|FAC)[^0-9]*(\d{1,4})', name, re.I)
-        if match:
-            numbers.append(int(match.group(1)))
+        number = invoice_number_from_filename(
+            str(item.get('name') or ''),
+            year=year,
+        )
+        if number is not None:
+            numbers.append(number)
     return max(numbers, default=0) + 1
 
 
