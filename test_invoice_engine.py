@@ -4,6 +4,7 @@ from invoice_engine import (
     generate_invoice_pdf,
     invoice_filename,
     invoice_values,
+    invoice_number_from_filename,
 )
 
 
@@ -52,3 +53,12 @@ def test_invoice_pdf_is_generated():
     assert len(pdf) > 3000
     assert values["total"] == 718.59
     assert due.isoformat() == "2026-09-20"
+
+
+def test_invoice_number_parser_handles_current_and_legacy_names():
+    assert invoice_number_from_filename("FAC26-056_P26-031-AGR.pdf", year="26") == 56
+    assert invoice_number_from_filename("~FAC26-056_P26-033-HAQ.pdf", year="26") == 56
+    assert invoice_number_from_filename("FAC P26-055-RME.pdf", year="26") == 55
+    assert invoice_number_from_filename("FAC_P26-049-AGR.xlsx", year="26") == 49
+    assert invoice_number_from_filename("FAC26-053.pdf", year="26") == 53
+    assert invoice_number_from_filename("FAC25-099_old.pdf", year="26") is None
