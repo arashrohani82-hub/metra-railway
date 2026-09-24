@@ -11,6 +11,7 @@ from pypdf import PdfReader
 import requests
 
 import fixed_ods_app as base
+from project_phone import PhoneStore, PhoneStoreError, project_code
 
 app = base.app
 legacy = base.legacy
@@ -461,6 +462,16 @@ def select_onedrive_project(chat_id, uid, choice_id):
         return
 
     folder = choice["folder"]
+    # Resolve only the stable project identifier against List.xlsx. A missing
+    # mapping or failed read is not an empty phone and must never select a row
+    # using Description, client name, or a folder's descriptive suffix.
+    try:
+        code = project_code(folder)
+        phone = PhoneStore(legacy).read(code)
+    except Exception as exc:
+        logger.warning('Invoice Phone lookup failed: %s', exc)
+        legacy.tg(chat_id, f'❌ Impossible de lire Phone dans List.xlsx : {exc}')
+        return
     ref, record = _find_history_by_project_folder(folder)
     recovered = recover_project_metadata_from_onedrive(folder)
     if record:
@@ -484,6 +495,10 @@ def select_onedrive_project(chat_id, uid, choice_id):
             "price": float(recovered.get("price") or 0),
         }
 
+    # Phone is authoritative in List.xlsx even when blank. Never reuse an
+    # archived offer's phone or a phone from a previous Telegram session.
+    data['invoice_project_code'] = code
+    data['phone'] = phone
     data["pending_invoice"] = None
     data["waiting_invoice_percentage"] = False
     data["waiting_invoice_amount"] = False
@@ -539,6 +554,8 @@ def handle_update_runtime(data):
             uid = str(actor_id) if actor_id is not None else ""
             session = legacy.user_data.get(uid, {})
             if text and session.get("waiting_invoice_client_field"):
+                if actor_id not in legacy.ALLOWED_USERS:
+                    return
                 field = session.get("waiting_invoice_client_field")
                 value = text.strip()
                 if field == "email":
@@ -549,6 +566,17 @@ def handle_update_runtime(data):
                 if not value:
                     legacy.tg(chat_id, "❌ Cette information ne peut pas être vide.")
                     return
+                if field == 'phone':
+                    try:
+                        # Old in-progress sessions may not yet have the new key.
+                        code = session.get('invoice_project_code') or project_code(session.get('project_folder'))
+                        PhoneStore(legacy).save(code, value)
+                        session['invoice_project_code'] = code
+                    except Exception as exc:
+                        logger.warning('Invoice Phone persistence failed: %s', exc)
+                        legacy.tg(chat_id, f'❌ Numéro non enregistré dans List.xlsx : {exc}\n'
+                                  'Renvoyez le numéro après correction. La facture reste en attente.')
+                        return
                 session[field] = value
                 if field == "addr":
                     session["project_address"] = value
