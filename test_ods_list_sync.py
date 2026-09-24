@@ -2,6 +2,7 @@ import os
 import io
 import tempfile
 from datetime import datetime
+from unittest.mock import patch
 
 import openpyxl
 
@@ -108,3 +109,59 @@ def test_missing_calculation_properties_are_repaired_before_save():
     assert reopened.calculation.forceFullCalc is True
     assert reopened.calculation.calcMode == "auto"
     assert reopened["data 2026"]["D3"].value.startswith("ODS26-107-GGH")
+
+
+def test_locked_list_is_refetched_and_other_editor_change_is_preserved():
+    original = workbook_with_ods_sheet()
+    changed = workbook_with_ods_sheet()
+    changed['data 2026'].append([
+        2, 2026, 'September', 'ODS26-097-CIV-Other-editor', 1000,
+        datetime(2026, 9, 1), 'In process', 0, '', 'Someone else', None, '',
+    ])
+
+    def content(workbook):
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    writes = []
+    def upload(_token, _sender, _path, payload, _mime):
+        writes.append(payload)
+        if len(writes) == 1:
+            raise app.OneDriveUploadError(app.ODS_LIST_PATH, 423)
+
+    data = {
+        'odsNum': 'ODS26-098-CIV-ICK-Plan-de-drainage',
+        'price': 6500, 'name': 'Cédric Théoret',
+        'email': 'cedrict@aquawatereau.com',
+        'email_sent_at': '2026-09-24T14:39:00',
+    }
+    with patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'test@example.com'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', side_effect=[content(original), content(changed)]) as download, \
+         patch.object(app, 'upload_onedrive_path', side_effect=upload), \
+         patch.object(app.time, 'sleep'):
+        row = app.sync_ods_list(data)
+
+    saved = openpyxl.load_workbook(io.BytesIO(writes[-1]))['data 2026']
+    assert download.call_count == 2
+    assert row == 4
+    assert saved['D3'].value == 'ODS26-097-CIV-Other-editor'
+    assert saved['D4'].value.startswith('ODS26-098-CIV-ICK')
+
+
+def test_permanent_lock_exposes_manual_retry_message():
+    buffer = io.BytesIO()
+    workbook_with_ods_sheet().save(buffer)
+    data = {'odsNum': 'ODS26-098-CIV-ICK-Test', 'price': 6500, 'name': 'Client'}
+    with patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'test@example.com'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', return_value=buffer.getvalue()), \
+         patch.object(app, 'upload_onedrive_path', side_effect=app.OneDriveUploadError(app.ODS_LIST_PATH, 423)), \
+         patch.object(app.time, 'sleep'):
+        try:
+            app.sync_ods_list(data)
+        except RuntimeError as exc:
+            assert 'Réessayer List.xlsx' in str(exc)
+        else:
+            raise AssertionError('Permanent lock must be reported')
