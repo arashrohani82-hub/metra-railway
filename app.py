@@ -1329,6 +1329,12 @@ def safe_archive_filename(value):
     return cleaned[:180] or 'ODS'
 
 
+class OneDriveUploadError(RuntimeError):
+    def __init__(self, path, status_code):
+        self.status_code = status_code
+        super().__init__(f"échec de l'archivage de {path} (HTTP {status_code})")
+
+
 def upload_onedrive_path(token, sender, relative_path, content, content_type):
     """Upload or replace one file at a path in the sender's OneDrive."""
     encoded_path = urllib.parse.quote(relative_path, safe='/')
@@ -1350,7 +1356,7 @@ def upload_onedrive_path(token, sender, relative_path, content, content_type):
             response.status_code,
             response.text[:500],
         )
-        raise RuntimeError(f"échec de l'archivage de {relative_path}")
+        raise OneDriveUploadError(relative_path, response.status_code)
 
 
 def download_onedrive_path(token, sender, relative_path):
@@ -1526,20 +1532,50 @@ def sync_ods_list(data, status='In process', accepted_at=None):
         config = microsoft_email_config()
         token = graph_access_token()
         sender = config['EMAIL_SENDER']
-        content = download_onedrive_path(token, sender, ODS_LIST_PATH)
-        workbook = openpyxl.load_workbook(io.BytesIO(content))
-        row = upsert_ods_list_workbook(workbook, data, status, accepted_at)
-        output = io.BytesIO()
-        workbook.save(output)
-        upload_onedrive_path(
-            token,
-            sender,
-            ODS_LIST_PATH,
-            output.getvalue(),
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
-        logger.info("ODS List synchronized: %s status=%s row=%s", offer_reference(data), status, row)
-        return row
+        for attempt in range(4):
+            # Re-read after a lock clears so another editor's changes survive.
+            content = download_onedrive_path(token, sender, ODS_LIST_PATH)
+            workbook = openpyxl.load_workbook(io.BytesIO(content))
+            row = upsert_ods_list_workbook(workbook, data, status, accepted_at)
+            output = io.BytesIO()
+            workbook.save(output)
+            try:
+                upload_onedrive_path(
+                    token, sender, ODS_LIST_PATH, output.getvalue(),
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+            except OneDriveUploadError as exc:
+                if exc.status_code != 423:
+                    raise
+                if attempt == 3:
+                    raise RuntimeError(
+                        'List.xlsx est verrouillé dans OneDrive/Excel. '
+                        'Fermez le fichier, puis appuyez sur « Réessayer List.xlsx ».'
+                    ) from exc
+                logger.warning('List.xlsx locked (423); retry %s/3', attempt + 1)
+                time.sleep(2 ** attempt)
+                continue
+            logger.info('ODS List synchronized: %s status=%s row=%s', offer_reference(data), status, row)
+            return row
+
+
+def retry_ods_list(chat_id, uid, ref):
+    """Retry a sent offer without resending its email or creating a duplicate row."""
+    record = offers_history.get(str(uid), {}).get(ref)
+    data = (record or {}).get('data')
+    if not data or not data.get('email_sent_at'):
+        tg(chat_id, '❌ Offre envoyée introuvable. Recherchez-la par son numéro ODS.')
+        return
+    status = record.get('status') or 'In process'
+    try:
+        sync_ods_list(data, status)
+    except Exception as exc:
+        logger.exception('ODS List manual retry failed for %s', ref)
+        tg(chat_id, f'⚠️ List.xlsx toujours indisponible : {exc}', [[
+            {'text': '🔄 Réessayer List.xlsx', 'callback_data': f'list_retry:{ref}'},
+        ]])
+    else:
+        tg(chat_id, f'✅ {ref} ajouté/mis à jour dans List.xlsx : {status}')
 
 
 def upload_onedrive_file(token, sender, filename, content, content_type):
@@ -1854,7 +1890,9 @@ def do_send_email(chat_id, uid):
                 + "\n".join(f"• {name}" for name in archive_files),
             )
         if list_sync_error:
-            tg(chat_id, "⚠️ Offre envoyée, mais List.xlsx n'a pas été mis à jour : " + list_sync_error)
+            ref = offer_reference(data)
+            tg(chat_id, "⚠️ Offre envoyée, mais List.xlsx n'a pas été mis à jour : " + list_sync_error,
+               [[{'text': '🔄 Réessayer List.xlsx', 'callback_data': f'list_retry:{ref}'}]])
         else:
             tg(chat_id, "📊 List.xlsx mis à jour : In process")
         tg(
@@ -2360,6 +2398,8 @@ def handle_update(data):
             elif cdata.startswith('offer_status:'):
                 _, status, ref = cdata.split(':', 2)
                 executor.submit(do_update_ods_status, chat_id, uid, status, ref)
+            elif cdata.startswith('list_retry:'):
+                executor.submit(retry_ods_list, chat_id, uid, cdata.split(':', 1)[1])
             elif cdata == 'invoice_start':
                 show_invoice_options(chat_id, uid)
             elif cdata.startswith('invoice_pct:'):
