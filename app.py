@@ -757,6 +757,10 @@ def selected_assumptions(data):
         )
     return [f"{index}- {text}" for index, text in enumerate(assumptions, 1)]
 
+def selected_exclusions(data):
+    """Overridden by the department flow for approved civil exclusions."""
+    return []
+
 def generate_pdf(data):
     buf = io.BytesIO()
     doc = BaseDocTemplate(buf, pagesize=letter,
@@ -855,9 +859,17 @@ def generate_pdf(data):
     story.append(Spacer(1, 3))
     story.append(Paragraph('Le délai de livraison estimé est de ' + (data.get('delai') or '10') + ' jours ouvrables suivant la visite finale sur site.', sn2))
     story.append(Spacer(1, 3))
-    story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb2))
-    for h in selected_assumptions(data):
-        story.append(Paragraph(h, sn2))
+    assumptions = selected_assumptions(data)
+    if assumptions:
+        story.append(Paragraph('<b>Cette offre est basée sur les hypothèses suivantes :</b>', sb2))
+        for h in assumptions:
+            story.append(Paragraph(h, sn2))
+    exclusions = selected_exclusions(data)
+    if exclusions:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph('<b>Exclusions :</b>', sb2))
+        for item in exclusions:
+            story.append(Paragraph('• ' + item, sn2))
     story.append(Spacer(1, 4))
     story.append(Paragraph("Cette offre est valable 30 jours. Pour l'accepter, veuillez compléter les sections suivantes.", sn2))
     story.append(Spacer(1, 8))
@@ -892,8 +904,26 @@ def generate_excel(data):
     ws['F47'] = '=E47*D47'
     ws['F48'] = '=SUM(F47:F47)'
     assumptions = selected_assumptions(data)
-    for row, value in zip((54, 55, 56), assumptions + ['', '', '']):
-        ws.cell(row=row, column=2).value = value
+    exclusions = selected_exclusions(data)
+    if data.get('department') == 'CIV':
+        # The template has only three rows for conditions. Keep every selected
+        # item in the cells instead of silently dropping the fourth onward.
+        sections = [
+            'Hypothèses :\n' + '\n'.join(assumptions) if assumptions else '',
+            'Exclusions :\n' + '\n'.join('• ' + item for item in exclusions) if exclusions else '',
+            '',
+        ]
+        for row, value in zip((54, 55, 56), sections):
+            cell = ws.cell(row=row, column=2)
+            cell.value = value
+            alignment = copy.copy(cell.alignment)
+            alignment.wrap_text = True
+            alignment.vertical = 'top'
+            cell.alignment = alignment
+            ws.row_dimensions[row].height = max(15, (value.count('\n') + 1) * 15) if value else 15
+    else:
+        for row, value in zip((54, 55, 56), assumptions + ['', '', '']):
+            ws.cell(row=row, column=2).value = value
     wb.save(out_path)
     with open(out_path, 'rb') as f:
         buf = io.BytesIO(f.read())
@@ -2574,6 +2604,7 @@ def handle_update(data):
                             mandate, service_lines = parse_custom_technical_content(
                                 text,
                                 d.get('desc', ''),
+                                max_services=9 if d.get('department') == 'CIV' else 5,
                             )
                             d['desc'] = mandate
                             if service_lines:
