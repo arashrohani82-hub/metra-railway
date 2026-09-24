@@ -4,7 +4,7 @@ import hmac
 import html
 import copy
 import os, json, io, shutil, base64, logging, threading, time
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file, Response
 import anthropic
 from reportlab.lib.pagesizes import letter
@@ -566,6 +566,10 @@ def record_sent_offer(uid, data):
         'project_folder': existing.get('project_folder') or data.get('project_folder') or '',
         'project_web_url': existing.get('project_web_url') or data.get('project_web_url') or '',
         'status': 'Accept' if data.get('project_created') else (existing.get('status') or 'In process'),
+        'list_sync_pending': existing.get('list_sync_pending', False),
+        'list_sync_status': existing.get('list_sync_status') or (
+            'Accept' if data.get('project_created') else 'In process'
+        ),
     }
     save_offers_history()
     return ref
@@ -1559,6 +1563,68 @@ def sync_ods_list(data, status='In process', accepted_at=None):
             return row
 
 
+def set_ods_list_sync_state(uid, ref, status, pending):
+    """Remember a failed List.xlsx write so a restart can complete it."""
+    record = offers_history.get(str(uid), {}).get(ref)
+    if record is None:
+        return
+    record['list_sync_pending'] = bool(pending)
+    record['list_sync_status'] = status
+    save_offers_history()
+
+
+def reconcile_recent_ods_list():
+    """Restore missing recently sent offers and retry locked writes."""
+    cutoff = datetime.now() - timedelta(days=3)
+    candidates = []
+    for uid, records in list(offers_history.items()):
+        for ref, record in list(records.items()):
+            data = record.get('data') or {}
+            if not data.get('email_sent_at') or not data.get('odsNum'):
+                continue
+            try:
+                sent_at = datetime.fromisoformat(str(record.get('sent_at') or ''))
+                recent = sent_at.replace(tzinfo=None) >= cutoff
+            except (TypeError, ValueError):
+                recent = False
+            if recent or record.get('list_sync_pending'):
+                candidates.append((uid, ref, record))
+    if not candidates:
+        return
+
+    config = microsoft_email_config()
+    token = graph_access_token()
+    content = download_onedrive_path(token, config['EMAIL_SENDER'], ODS_LIST_PATH)
+    workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    existing_refs = set()
+    for ws in workbook.worksheets:
+        if not str(ws.title).lower().startswith('data '):
+            continue
+        headers = {str(cell.value or '').strip().lower(): cell.column for cell in ws[1]}
+        col = headers.get('description')
+        if col:
+            existing_refs.update(
+                str(row[0] or '').upper()
+                for row in ws.iter_rows(min_row=2, min_col=col, max_col=col, values_only=True)
+            )
+    workbook.close()
+
+    for uid, ref, record in candidates:
+        if not record.get('list_sync_pending') and any(ref.upper() in desc for desc in existing_refs):
+            continue
+        status = (record.get('list_sync_status') if record.get('list_sync_pending')
+                  else record.get('status')) or 'In process'
+        try:
+            sync_ods_list(record['data'], status)
+        except Exception:
+            set_ods_list_sync_state(uid, ref, status, True)
+            logger.exception('Pending ODS List synchronization failed for %s', ref)
+        else:
+            set_ods_list_sync_state(uid, ref, status, False)
+            existing_refs.add(ref.upper())
+            logger.warning('Pending ODS List synchronized: %s status=%s', ref, status)
+
+
 def retry_ods_list(chat_id, uid, ref):
     """Retry a sent offer without resending its email or creating a duplicate row."""
     record = offers_history.get(str(uid), {}).get(ref)
@@ -1570,11 +1636,13 @@ def retry_ods_list(chat_id, uid, ref):
     try:
         sync_ods_list(data, status)
     except Exception as exc:
+        set_ods_list_sync_state(uid, ref, status, True)
         logger.exception('ODS List manual retry failed for %s', ref)
         tg(chat_id, f'⚠️ List.xlsx toujours indisponible : {exc}', [[
             {'text': '🔄 Réessayer List.xlsx', 'callback_data': f'list_retry:{ref}'},
         ]])
     else:
+        set_ods_list_sync_state(uid, ref, status, False)
         tg(chat_id, f'✅ {ref} ajouté/mis à jour dans List.xlsx : {status}')
 
 
@@ -1870,7 +1938,10 @@ def do_send_email(chat_id, uid):
             sync_ods_list(data, 'In process')
         except Exception as exc:
             list_sync_error = str(exc)
+            set_ods_list_sync_state(uid, offer_reference(data), 'In process', True)
             logger.exception("ODS List initial synchronization failed")
+        else:
+            set_ods_list_sync_state(uid, offer_reference(data), 'In process', False)
         tg(
             chat_id,
             f"✅ Courriel envoyé à {recipient}\n"
@@ -2166,9 +2237,11 @@ def do_update_ods_status(chat_id, uid, status, offer_ref=None):
         sync_ods_list(data, status)
         if history_record is not None:
             history_record['status'] = status
-            save_offers_history()
+            set_ods_list_sync_state(uid, offer_ref, status, False)
         tg(chat_id, f"📊 List.xlsx mis à jour : {status}")
     except Exception as exc:
+        if history_record is not None:
+            set_ods_list_sync_state(uid, offer_ref, status, True)
         logger.exception("ODS List status synchronization failed")
         tg(chat_id, f"❌ Mise à jour de List.xlsx impossible : {exc}")
 
@@ -2221,7 +2294,10 @@ def _do_create_project(chat_id, uid, offer_ref=None):
             sync_ods_list(data, 'Accept', accepted_at=accepted_at)
         except Exception as exc:
             list_sync_error = str(exc)
+            set_ods_list_sync_state(uid, offer_reference(data), 'Accept', True)
             logger.exception("ODS List acceptance synchronization failed")
+        else:
+            set_ods_list_sync_state(uid, offer_reference(data), 'Accept', False)
         data['project_created'] = True
         data['project_creating'] = False
         data['project_web_url'] = web_url
