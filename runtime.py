@@ -5,6 +5,7 @@ auxiliary bot startup work. The Telegram webhook is explicitly rebound to the
 final STR/CIV/GEO handler so later runtime monkey-patches cannot bypass it.
 """
 import os
+import threading
 
 from ods_router import app
 
@@ -134,3 +135,19 @@ household_bot.logger.warning(
 
 # Load this last so no later runtime layer can restore the old email signature.
 import final_email_branding  # noqa: E402,F401
+
+
+def _repair_pending_ods_list():
+    # Railway keeps offer history on its persistent volume. This also finds
+    # recently sent offers from before this repair was deployed.
+    delay = 30
+    while True:
+        threading.Event().wait(delay)
+        try:
+            ods_app.reconcile_recent_ods_list()
+        except Exception:
+            ods_app.logger.exception('Background ODS List reconciliation failed')
+        delay = 300
+
+
+threading.Thread(target=_repair_pending_ods_list, name='ods-list-reconciliation', daemon=True).start()
