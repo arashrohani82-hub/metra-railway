@@ -81,6 +81,30 @@ class CivilExclusionsTest(unittest.TestCase):
         finally:
             app.user_data.pop(uid, None)
 
+    def test_production_entrypoint_routes_civil_note_to_first_question(self):
+        # Railway must run runtime:app; numbering_runtime:app bypasses this guard.
+        from pathlib import Path
+        import json
+        import runtime
+
+        railway = json.loads(Path('railway.json').read_text())
+        self.assertIn('gunicorn runtime:app', railway['deploy']['startCommand'])
+        uid = '987654322'
+        data = self.sample()
+        data.update({'special_note_confirmed': False, 'waiting_field': None})
+        app.user_data[uid] = data
+        try:
+            with patch.object(app, 'save_user_data'), patch.object(app, 'tg') as send, \
+                 patch.object(app.req, 'post'):
+                runtime.department_dispatch({'callback_query': {
+                    'data': 'note_none', 'id': 'callback',
+                    'from': {'id': int(uid)}, 'message': {'chat': {'id': 100}},
+                }})
+                self.assertTrue(data['special_note_confirmed'])
+                self.assertIn('deptassume:civ_docs:yes', str(send.call_args))
+        finally:
+            app.user_data.pop(uid, None)
+
 
 if __name__ == '__main__':
     unittest.main()
