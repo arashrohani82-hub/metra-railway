@@ -1899,7 +1899,7 @@ def do_send_email(chat_id, uid):
             chat_id,
             "Mettre à jour le statut de cette offre :",
             [
-                [{'text': '✅ Convertir en projet', 'callback_data': 'project_create'}],
+                [{'text': '✅ Convertir en projet', 'callback_data': f'offer_pick:{offer_reference(data)}'}],
                 [
                     {'text': '❌ Refused', 'callback_data': 'ods_status:Refused'},
                     {'text': '🔒 Closed', 'callback_data': 'ods_status:Closed'},
@@ -2392,7 +2392,13 @@ def handle_update(data):
             elif cdata == 'email_send':
                 executor.submit(do_send_email, chat_id, uid)
             elif cdata == 'project_create':
-                executor.submit(do_create_project, chat_id, uid)
+                # Old messages have a reference-free button. A new /start
+                # clears the session, so ask the user to select the offer
+                # instead of attempting a conversion with missing data.
+                if user_data.get(uid, {}).get('email_sent_at'):
+                    show_offer_conversion_confirmation(chat_id, uid, offer_reference(user_data[uid]))
+                else:
+                    show_pending_offers(chat_id, uid)
             elif cdata.startswith('ods_status:'):
                 executor.submit(do_update_ods_status, chat_id, uid, cdata.split(':', 1)[1])
             elif cdata.startswith('offer_status:'):

@@ -10,6 +10,11 @@ from ods_router import app
 
 # Side-effect patches on app.py.
 import ods_recovery  # noqa: E402,F401
+# Load the established OneDrive invoice selectors before the department router
+# captures its fallback handler. Otherwise the Facturation reply button is
+# treated as arbitrary client text.
+import invoice_control_runtime  # noqa: E402,F401
+import ods_runtime as invoice_runtime  # noqa: E402
 import department_ods_patch as department_patch  # noqa: E402
 import department_contract_templates  # noqa: E402,F401
 import justify_pdf_text  # noqa: E402,F401
@@ -44,6 +49,16 @@ def department_dispatch(update):
     uid = str(user.get('id') or chat_id or '')
     data = ods_app.user_data.get(uid, {}) if uid else {}
     code = department_patch._dept(data, uid) if uid else 'STR'
+
+    incoming_text = str(((update or {}).get('message') or {}).get('text') or '')
+    if incoming_text in ('🧾 Facturation', '🧾 Facturer un projet') or cdata.startswith('od_invoice_project:'):
+        if user.get('id') not in ods_app.ALLOWED_USERS:
+            ods_app.tg(chat_id, '⛔ Ce bot est privé.')
+            return
+        if cdata.startswith('od_invoice_project:'):
+            _answer_callback(callback)
+            return invoice_runtime.select_onedrive_project(chat_id, uid, cdata.split(':', 1)[1])
+        return invoice_runtime.show_onedrive_projects_for_invoice(chat_id, uid)
 
     if code in ('CIV', 'GEO') and callback:
         if cdata == 'note_none':
