@@ -169,6 +169,7 @@ def test_permanent_lock_exposes_manual_retry_message():
 
 def test_reconciliation_recovers_missing_recent_offer_without_resending_email():
     workbook = workbook_with_ods_sheet()
+    workbook['data 2026']['N2'] = 'extends beyond the header'
     buffer = io.BytesIO()
     workbook.save(buffer)
     ref = 'ODS26-128-STR-CJH'

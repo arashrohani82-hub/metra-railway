@@ -1600,7 +1600,10 @@ def reconcile_recent_ods_list():
     for ws in workbook.worksheets:
         if not str(ws.title).lower().startswith('data '):
             continue
-        headers = {str(cell.value or '').strip().lower(): cell.column for cell in ws[1]}
+        headers = {
+            str(cell.value or '').strip().lower(): column
+            for column, cell in enumerate(ws[1], start=1)
+        }
         col = headers.get('description')
         if col:
             existing_refs.update(
