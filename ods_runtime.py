@@ -605,4 +605,7 @@ def handle_update_runtime(data):
 legacy.handle_update = handle_update_runtime
 logger.info("ODS RUNTIME ONEDRIVE INVOICE PROJECT LIST ACTIVE")
 
-force_telegram_webhook()
+# The deployed runtime owns webhook registration. Importing invoice routing
+# must not silently replace its URL with ODS_PUBLIC_URL's legacy default.
+if __name__ == "__main__" or os.environ.get("ODS_FORCE_WEBHOOK") == "1":
+    force_telegram_webhook()
