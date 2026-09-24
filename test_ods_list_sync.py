@@ -165,3 +165,54 @@ def test_permanent_lock_exposes_manual_retry_message():
             assert 'Réessayer List.xlsx' in str(exc)
         else:
             raise AssertionError('Permanent lock must be reported')
+
+
+def test_reconciliation_recovers_missing_recent_offer_without_resending_email():
+    workbook = workbook_with_ods_sheet()
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    ref = 'ODS26-128-STR-CJH'
+    uid = '987654320'
+    record = {
+        'sent_at': datetime.now().isoformat(),
+        'status': 'In process',
+        'data': {'odsNum': ref + '-Étude-du-fonds-de-prévoyance',
+                 'email_sent_at': datetime.now().isoformat(), 'price': 2800},
+    }
+    with patch.dict(app.offers_history, {uid: {ref: record}}, clear=True), \
+         patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'test@example.com'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', return_value=buffer.getvalue()), \
+         patch.object(app, 'sync_ods_list') as sync, \
+         patch.object(app, 'save_offers_history'):
+        app.reconcile_recent_ods_list()
+        sync.assert_called_once_with(record['data'], 'In process')
+        assert record['list_sync_pending'] is False
+
+        # Once the row exists, later cycles do not write it again.
+        workbook['data 2026'].append([2, 2026, 'September', ref, 2800])
+        fresh = io.BytesIO()
+        workbook.save(fresh)
+        with patch.object(app, 'download_onedrive_path', return_value=fresh.getvalue()):
+            app.reconcile_recent_ods_list()
+        sync.assert_called_once()
+
+
+def test_reconciliation_keeps_locked_offer_pending_for_next_cycle():
+    buffer = io.BytesIO()
+    workbook_with_ods_sheet().save(buffer)
+    ref = 'ODS26-128-STR-CJH'
+    record = {
+        'sent_at': datetime.now().isoformat(),
+        'data': {'odsNum': ref, 'email_sent_at': datetime.now().isoformat()},
+    }
+    with patch.dict(app.offers_history, {'987654320': {ref: record}}, clear=True), \
+         patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'test@example.com'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', return_value=buffer.getvalue()), \
+         patch.object(app, 'sync_ods_list', side_effect=RuntimeError('423')) as sync, \
+         patch.object(app, 'save_offers_history'):
+        app.reconcile_recent_ods_list()
+        assert record['list_sync_pending'] is True
+        app.reconcile_recent_ods_list()
+        assert sync.call_count == 2
