@@ -69,8 +69,9 @@ def test_pdf_layout_is_bounded_and_compact():
     assert "topMargin=3.8*cm, bottomMargin=2.15*cm" in SOURCE
     assert "size=9.5, leading=11.7" in SOURCE
     assert "sn2=s('n2',size=8.5,leading=10.2)" in SOURCE
-    assert "for line in raw[:4]" in SOURCE
-    assert "if len(compact_line) > 140" in SOURCE
+    # Civil mandates may require more than four complete service items.
+    assert "for line in raw:" in SOURCE
+    assert "if len(compact_line) > 140" not in SOURCE
     assert SOURCE.index("6. Présence sur site et logistique") < SOURCE.index("story.append(PageBreak())")
     assert SOURCE.index("story.append(PageBreak())") < SOURCE.index("HONORAIRES – FORFAIT DU PROJET")
 

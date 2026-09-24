@@ -154,7 +154,8 @@ def department_text(text, code, meta):
         if code == 'STR':
             return STRUCTURE_ASSUMPTIONS
         if code == 'CIV':
-            return CIVIL_ASSUMPTIONS
+            # Civil conditions are now individually selected in Telegram.
+            return text
         if code == 'GEO':
             return GEOTECH_ASSUMPTIONS
 

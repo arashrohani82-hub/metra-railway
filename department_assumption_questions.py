@@ -20,8 +20,8 @@ QUESTIONS = {
         (
             'civ_survey',
             '📏 Ajouter cette exclusion à l\'offre?\n\n'
-            'Les travaux d\'arpentage légal et les relevés topographiques spécialisés ne sont pas inclus, sauf indication contraire dans l\'offre.',
-            'Les travaux d’arpentage légal et les relevés topographiques spécialisés ne sont pas inclus, sauf indication contraire dans l’offre;'
+            'Relevé d’arpentage.',
+            'Relevé d’arpentage;'
         ),
         (
             'civ_fees',
@@ -32,8 +32,20 @@ QUESTIONS = {
         (
             'civ_other_studies',
             '🧪 Ajouter cette exclusion à l\'offre?\n\n'
-            'Les études géotechniques, environnementales ou de caractérisation des sols ne sont pas incluses, sauf indication contraire.',
-            'Les études géotechniques, environnementales ou de caractérisation des sols ne sont pas incluses, sauf indication contraire;'
+            'Étude géotechnique.',
+            'Étude géotechnique;'
+        ),
+        (
+            'civ_landscape',
+            '🌿 Ajouter cette exclusion à l\'offre?\n\n'
+            'Plans d’aménagement paysager.',
+            'Plans d’aménagement paysager;'
+        ),
+        (
+            'civ_supervision',
+            '👷 Ajouter cette exclusion à l\'offre?\n\n'
+            'Surveillance de chantier.',
+            'Surveillance de chantier;'
         ),
         (
             'civ_authority_changes',
@@ -80,6 +92,11 @@ QUESTIONS = {
             'La remise en état complète des surfaces, aménagements paysagers ou pavages après les travaux de forage n’est pas incluse, sauf indication contraire.'
         ),
     ],
+}
+
+CIVIL_EXCLUSION_KEYS = {
+    'civ_survey', 'civ_fees', 'civ_other_studies',
+    'civ_landscape', 'civ_supervision',
 }
 
 _ORIGINAL_ASK_NEXT_MISSING = legacy.ask_next_missing
@@ -142,12 +159,27 @@ def selected_assumptions(data):
         return _ORIGINAL_SELECTED_ASSUMPTIONS(data)
     selected = []
     for key, _prompt, text in QUESTIONS[code]:
+        if code == 'CIV' and key in CIVIL_EXCLUSION_KEYS:
+            continue
         if data.get(_question_field(key)):
             selected.append(text)
     return [f'{i}- {text}' for i, text in enumerate(selected, 1)]
 
 
 legacy.selected_assumptions = selected_assumptions
+
+
+def selected_exclusions(data):
+    """Print civil exclusions only after explicit confirmation in this offer."""
+    if _code(data) != 'CIV':
+        return []
+    return [text for key, _prompt, text in QUESTIONS['CIV']
+            if key in CIVIL_EXCLUSION_KEYS
+            and data.get(_confirmed_field(key))
+            and data.get(_question_field(key))]
+
+
+legacy.selected_exclusions = selected_exclusions
 
 
 def show_format_buttons(chat_id, data):
@@ -163,7 +195,8 @@ def show_format_buttons(chat_id, data):
         price = data.get('price', 0)
         ods = data.get('odsNum', 'ODS')
 
-    selected_count = sum(1 for key, _p, _t in QUESTIONS[code] if data.get(_question_field(key)))
+    selected_count = sum(1 for key, _p, _t in QUESTIONS[code]
+                         if data.get(_question_field(key)) and key not in CIVIL_EXCLUSION_KEYS)
     label = 'Civil' if code == 'CIV' else 'Géotechnique'
     lines = [
         '✅ *Prêt à générer*', '',
@@ -176,6 +209,7 @@ def show_format_buttons(chat_id, data):
         '🧾 Taxes : ' + (data.get('taxes') or '—'),
         '📝 Note : ' + (data.get('special_note') or 'Aucune'),
         f'📌 Conditions {label} retenues : {selected_count}',
+        *([f'🚫 Exclusions retenues : {len(selected_exclusions(data))}'] if code == 'CIV' else []),
         '',
         '🔧 ' + (data.get('project_title') or data.get('service') or '—'),
         '💰 $' + '{:,}'.format(price) + ' CAD',

@@ -268,18 +268,26 @@ def ask_desc_options(chat_id, uid):
             "{\"project_title\":\"short professional title\","
             "\"file_code\":\"relevant 3-letter uppercase technical code\","
             "\"short_mandate\":\"one short professional paragraph, maximum 70 words\","
-            "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\",\"line 4\",\"line 5 if justified\"]}. "
-            "Use 3 to 5 service lines. Each line must be a concrete engineering action or deliverable, short enough for an ODS table, "
+            "\"service_lines\":[\"line 1\",\"line 2\",\"line 3\"]}. "
+            f"Use 3 to {'9' if code == 'CIV' else '5'} service lines, only as needed for the mandate. "
+            "Each line must be a concrete engineering action or deliverable, short enough for an ODS table, "
             "and end without a period. Every line must be complete. Never use an ellipsis and never end with an unfinished connector. "
             f"Order services logically for this discipline: {meta['sequence']}. "
             "Do not add generic filler such as coordination, availability, meetings, communications, or administration unless requested. "
+            + ("For civil projects, consider the relevant actions from this sample vocabulary, without automatically including any: "
+               "project coordination; review of municipal requirements and supplied documents; site visit; "
+               "PCSWMM hydraulic modelling only when justified; grading based on survey or LiDAR; "
+               "stormwater drainage, discharge limit and retention design; septic system details only if relevant; "
+               "flow regulator, oil and sediment separator, retention basin or pumping station only if required; "
+               "civil plans for permit and construction when requested. " if code == 'CIV' else "")
+            +
             "Use 'le cas échéant' only for genuinely conditional work. "
             "Client request/context: " + raw_desc + ". "
             "Initially detected service: " + service + ". Property/site: " + property_type + ". "
             "Project address: " + addr + ". Return ONLY valid JSON."
         )
         response = legacy.client.messages.create(
-            model='claude-sonnet-4-6', max_tokens=800,
+            model='claude-sonnet-4-6', max_tokens=1200 if code == 'CIV' else 800,
             messages=[{'role': 'user', 'content': prompt}],
         )
         result = ''.join(b.text for b in response.content if hasattr(b, 'text'))
@@ -287,7 +295,7 @@ def ask_desc_options(chat_id, uid):
         proposal = json.loads(result)
         service_lines = [
             cleaned + ';'
-            for line in proposal.get('service_lines', [])[:5]
+            for line in proposal.get('service_lines', [])[:9 if code == 'CIV' else 5]
             if (cleaned := legacy._clean_service_line(line))
         ]
         short_mandate = str(proposal.get('short_mandate') or raw_desc).strip()
