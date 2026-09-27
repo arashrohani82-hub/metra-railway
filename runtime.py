@@ -15,6 +15,7 @@ import ods_recovery  # noqa: E402,F401
 # captures its fallback handler. Otherwise the Facturation reply button is
 # treated as arbitrary client text.
 import invoice_control_runtime  # noqa: E402,F401
+import dashboard_runtime  # noqa: E402,F401  # registers /router/company-metrics for CEO dashboard
 import ods_runtime as invoice_runtime  # noqa: E402
 import department_ods_patch as department_patch  # noqa: E402
 import department_contract_templates  # noqa: E402,F401
