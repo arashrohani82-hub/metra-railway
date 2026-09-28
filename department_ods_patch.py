@@ -423,6 +423,7 @@ def handle_update(data):
         menu_commands = {
             '/annuler', '/cancel', '❌ Annuler', '/aide', '/help', '❓ Aide',
             '📁 Convertir une offre en projet', '🧾 Facturation', '🧾 Facturer un projet',
+            '📬 Suivi offres',
         }
         if text not in menu_commands and uid not in DEPT_BY_UID and not legacy.user_data.get(uid, {}).get('department'):
             ask_department(msg.get('chat', {}).get('id'), uid)
