@@ -17,6 +17,10 @@ import ods_recovery  # noqa: E402,F401
 import invoice_control_runtime  # noqa: E402,F401
 import dashboard_runtime  # noqa: E402,F401  # registers /router/company-metrics for CEO dashboard
 import ods_runtime as invoice_runtime  # noqa: E402
+# Restore the established offer follow-up chain before the department router
+# captures its fallback handler. This also adds 📬 Suivi offres to main_menu().
+import followup_persistence_runtime  # noqa: E402,F401
+import offer_potential_runtime  # noqa: E402,F401
 import department_ods_patch as department_patch  # noqa: E402
 import department_contract_templates  # noqa: E402,F401
 import justify_pdf_text  # noqa: E402,F401
