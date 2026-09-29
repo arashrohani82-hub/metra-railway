@@ -429,7 +429,7 @@ def show_offer(chat_id, uid):
             {"text": "❌ Refused", "callback_data": "of_status:Refused"},
             {"text": "🔒 Closed", "callback_data": "of_status:Closed"},
         ],
-        [{"text": "📁 Acceptée → projet", "callback_data": "of_convert"}],
+        [{"text": "📁 Acceptée → projet", "callback_data": f"of_convert:{offer['reference']}"}],
         [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
     legacy.tg(chat_id, _offer_text(offer, state), buttons)
@@ -739,13 +739,16 @@ def handle_update_offer_followup(data):
                 show_offer(chat_id, uid)
             except Exception as exc:
                 legacy.tg(chat_id, f"❌ Mise à jour impossible : {exc}")
-        elif cdata == "of_convert":
-            offer = _selected(uid)
-            if not offer:
-                legacy.tg(chat_id, "❌ Offre introuvable. Ouvrez de nouveau Suivi offres.")
+        elif cdata.startswith("of_convert"):
+            if not cdata.startswith("of_convert:"):
+                legacy.tg(chat_id, "⚠️ Ancien bouton expiré. Ouvrez de nouveau l'offre dans Suivi offres.")
                 return
-            legacy.tg(chat_id, f"🔎 Recherche de l'offre archivée {offer['reference']}...")
-            legacy.executor.submit(_confirm_conversion_from_followup, chat_id, uid, offer)
+            reference = cdata.split(":", 1)[1]
+            if not re.fullmatch(r"ODS\d{2}-\d{3,4}(?:-[A-Z]{3})?", reference, re.I):
+                legacy.tg(chat_id, "❌ Numéro d'offre invalide. Ouvrez de nouveau Suivi offres.")
+                return
+            legacy.tg(chat_id, f"🔎 Recherche de l'offre archivée {reference}...")
+            legacy.executor.submit(_confirm_conversion_from_followup, chat_id, uid, {"reference": reference})
         elif cdata == "of_back":
             month_key = str(_session(uid).get("offer_followup_month") or "")
             show_open_offers(chat_id, uid, month_key)
