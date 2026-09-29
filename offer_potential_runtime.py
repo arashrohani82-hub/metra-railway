@@ -151,7 +151,7 @@ def show_offer_with_potential(chat_id, uid):
             {"text": "❌ Refused", "callback_data": "of_status:Refused"},
             {"text": "🔒 Closed", "callback_data": "of_status:Closed"},
         ],
-        [{"text": "📁 Acceptée → projet", "callback_data": "of_convert"}],
+        [{"text": "📁 Acceptée → projet", "callback_data": f"of_convert:{offer['reference']}"}],
         [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
     legacy.tg(chat_id, followup._offer_text(offer, state) + extra, buttons)

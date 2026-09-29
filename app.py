@@ -1816,18 +1816,31 @@ def create_project_from_ods(data):
         create_onedrive_folder(token, sender, project_path, subfolder)
 
     base_name = safe_archive_filename(data.get('odsNum') or 'ODS')
-    pdf = generate_pdf(data)
-    pdf.seek(0)
-    excel = generate_excel(data)
-    excel.seek(0)
+    if data.get('recovered_from_onedrive'):
+        # Recovered history contains only selected spreadsheet fields. Never
+        # regenerate the signed offer from that incomplete reconstruction.
+        source_root = data['recovered_archive_root']
+        source_xlsx = data['recovered_archive_file']
+        source_pdf = re.sub(r'\.xlsx$', '.pdf', source_xlsx, flags=re.I)
+        source_items = {item.get('name') for item in list_onedrive_children(token, sender, source_root)}
+        if source_pdf not in source_items:
+            raise RuntimeError(f"PDF original de l'offre introuvable : {source_pdf}")
+        excel_bytes = download_onedrive_path(token, sender, f"{source_root}/{source_xlsx}")
+        pdf_bytes = download_onedrive_path(token, sender, f"{source_root}/{source_pdf}")
+    else:
+        pdf = generate_pdf(data)
+        pdf.seek(0)
+        excel = generate_excel(data)
+        excel.seek(0)
+        pdf_bytes, excel_bytes = pdf.read(), excel.read()
     correspondence = f"{project_path}/Correspondence"
     upload_onedrive_path(
         token, sender, f"{correspondence}/{base_name}.pdf",
-        pdf.read(), 'application/pdf',
+        pdf_bytes, 'application/pdf',
     )
     upload_onedrive_path(
         token, sender, f"{correspondence}/{base_name}.xlsx",
-        excel.read(),
+        excel_bytes,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
     return folder_name, project_item.get('webUrl', '')

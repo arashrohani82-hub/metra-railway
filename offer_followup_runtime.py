@@ -429,7 +429,7 @@ def show_offer(chat_id, uid):
             {"text": "❌ Refused", "callback_data": "of_status:Refused"},
             {"text": "🔒 Closed", "callback_data": "of_status:Closed"},
         ],
-        [{"text": "📁 Acceptée → projet", "callback_data": "of_convert"}],
+        [{"text": "📁 Acceptée → projet", "callback_data": f"of_convert:{offer['reference']}"}],
         [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
     legacy.tg(chat_id, _offer_text(offer, state), buttons)
@@ -611,6 +611,30 @@ def _history_reference(uid, reference):
     return ""
 
 
+def _confirm_conversion_from_followup(chat_id, uid, offer):
+    """Restore older List.xlsx offers from their archived ODS before conversion."""
+    reference = offer["reference"]
+    ref = _history_reference(uid, reference)
+    if not ref:
+        try:
+            from ods_recovery import _recover_from_xlsx
+            ref = _recover_from_xlsx(uid, reference)
+        except Exception:
+            logger.exception("Could not recover archived ODS %s", reference)
+            legacy.tg(chat_id, "❌ Impossible de retrouver le fichier ODS archivé. Réessayez ou recherchez l'offre par son numéro.")
+            return
+    if not ref:
+        legacy.tg(chat_id, f"❌ Aucun fichier ODS archivé trouvé pour {reference}. Vérifiez l'archive de l'offre.")
+        return
+    record = (legacy.offers_history.get(str(uid)) or {}).get(ref) or {}
+    data = record.get("data") or {}
+    # A partial identifier must never silently select a different offer.
+    if not str(data.get("odsNum") or ref).upper().startswith(reference.upper()):
+        legacy.tg(chat_id, "❌ Le fichier retrouvé ne correspond pas à l'offre sélectionnée.")
+        return
+    legacy.show_offer_conversion_confirmation(chat_id, uid, ref)
+
+
 _previous_handle_update = legacy.handle_update
 
 
@@ -715,13 +739,16 @@ def handle_update_offer_followup(data):
                 show_offer(chat_id, uid)
             except Exception as exc:
                 legacy.tg(chat_id, f"❌ Mise à jour impossible : {exc}")
-        elif cdata == "of_convert":
-            offer = _selected(uid)
-            ref = _history_reference(uid, offer["reference"] if offer else "")
-            if not ref:
-                legacy.tg(chat_id, "⚠️ Fichier de session introuvable. Utilisez « Convertir une offre en projet » pour rechercher cette ODS.")
+        elif cdata.startswith("of_convert"):
+            if not cdata.startswith("of_convert:"):
+                legacy.tg(chat_id, "⚠️ Ancien bouton expiré. Ouvrez de nouveau l'offre dans Suivi offres.")
                 return
-            legacy.show_offer_conversion_confirmation(chat_id, uid, ref)
+            reference = cdata.split(":", 1)[1]
+            if not re.fullmatch(r"ODS\d{2}-\d{3,4}(?:-[A-Z]{3})?", reference, re.I):
+                legacy.tg(chat_id, "❌ Numéro d'offre invalide. Ouvrez de nouveau Suivi offres.")
+                return
+            legacy.tg(chat_id, f"🔎 Recherche de l'offre archivée {reference}...")
+            legacy.executor.submit(_confirm_conversion_from_followup, chat_id, uid, {"reference": reference})
         elif cdata == "of_back":
             month_key = str(_session(uid).get("offer_followup_month") or "")
             show_open_offers(chat_id, uid, month_key)
