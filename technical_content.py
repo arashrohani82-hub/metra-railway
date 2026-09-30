@@ -111,6 +111,7 @@ if not getattr(json.loads, "_metra_unique_ods_codes", False):
 
 def clean_service_line(value):
     line = re.sub(r"^\s*(?:[•\-*]|☐|✅|\d+[.)-])\s*", "", str(value or ""))
+    line = line.replace("**", "").rstrip("\\").strip()
     line = re.sub(r"\s+", " ", line).strip().rstrip(".;")
     return line + ";" if line else ""
 
@@ -124,22 +125,52 @@ def parse_custom_technical_content(text, current_mandate="", max_services=5):
     mandate_parts = []
     services = []
     section = None
+    pending_service = []
+
+    def flush_service():
+        if pending_service:
+            cleaned = clean_service_line(" ".join(pending_service))
+            if cleaned:
+                services.append(cleaned)
+            pending_service.clear()
+
+    # A pasted list may use plain paragraphs rather than bullets. Preserve the
+    # single-paragraph mandate edit, but route a multiline scope to the table.
+    plain_list = len([line for line in raw.splitlines() if line.strip()]) > 1
+    has_headers = any(
+        re.match(r"^([^:]{2,40})\s*:", line.strip().replace("**", ""))
+        and line.strip().replace("**", "").split(":", 1)[0].strip().lower() in TECHNICAL_HEADERS
+        for line in raw.splitlines()
+    )
+    has_markers = bool(re.search(r"(?m)^\s*(?:[•\-*]|☐|✅|\d+[.)-])\s*", raw))
 
     for original_line in raw.splitlines():
-        line = original_line.strip()
+        line = original_line.strip().replace("**", "").rstrip("\\").strip()
         if not line:
             continue
         header_match = re.match(r"^([^:]{2,40})\s*:\s*(.*)$", line)
         if header_match and header_match.group(1).strip().lower() in TECHNICAL_HEADERS:
+            flush_service()
             header = header_match.group(1).strip().lower()
             section = "services" if "service" in header else "mandate"
             line = header_match.group(2).strip()
             if not line:
                 continue
 
+        marker = re.match(r"^\s*(?:[•\-*]|☐|✅|\d+[.)-])\s*", original_line)
+        if marker:
+            flush_service()
+            section = "services"
+            pending_service.append(clean_service_line(line).rstrip(";"))
+            continue
+        if pending_service:
+            # A title and its following explanatory paragraph are ONE service.
+            pending_service.append(line)
+            continue
+
         looks_like_service = bool(
             section == "services"
-            or re.match(r"^\s*(?:[•\-*]|☐|✅|\d+[.)-])\s*", original_line)
+            or (plain_list and not has_headers and not has_markers)
             or line.endswith(";")
         )
         if looks_like_service:
@@ -154,6 +185,8 @@ def parse_custom_technical_content(text, current_mandate="", max_services=5):
         else:
             mandate_parts.append(line)
 
+    flush_service()
+
     if not services and raw.count(";") >= 2:
         services = [
             cleaned
@@ -163,4 +196,6 @@ def parse_custom_technical_content(text, current_mandate="", max_services=5):
         mandate_parts = []
 
     mandate = " ".join(mandate_parts).strip() or str(current_mandate or "").strip()
-    return mandate, services[:max_services]
+    # Explicit manual scope must never be silently dropped by the AI proposal
+    # size limit; max_services remains accepted for compatibility with callers.
+    return mandate, services
