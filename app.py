@@ -2745,6 +2745,7 @@ def handle_update(data):
                                 max_services=9 if d.get('department') == 'CIV' else 5,
                             )
                             d['desc'] = mandate
+                            d['desc_options'] = [mandate]
                             if service_lines:
                                 d['service_lines'] = service_lines
                         else:
