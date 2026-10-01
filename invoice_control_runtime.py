@@ -239,6 +239,7 @@ def show_invoice_options_control(chat_id, uid):
             f"Contrat : {status['contract']:,.2f} $\n"
             f"Déjà facturé : {status['billed']:,.2f} $ ({status['percent']:g} %)\n"
             "Reste à facturer : 0.00 $",
+            [[{'text': '💳 Réception d’un paiement / reçu', 'callback_data': 'pay_start'}]],
         )
         return
 
@@ -262,6 +263,7 @@ def show_invoice_options_control(chat_id, uid):
             ],
             [{'text': '📊 Autre pourcentage', 'callback_data': 'invoice_pct_other'}],
             [{'text': '💵 Montant fixe', 'callback_data': 'invoice_fixed'}],
+            [{'text': '💳 Réception d’un paiement / reçu', 'callback_data': 'pay_start'}],
             [{'text': '❌ Annuler', 'callback_data': 'invoice_cancel'}],
         ],
     )
