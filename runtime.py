@@ -54,6 +54,8 @@ def department_dispatch(update):
     user = callback.get('from') or (update or {}).get('message', {}).get('from') or {}
     uid = str(user.get('id') or chat_id or '')
     data = ods_app.user_data.get(uid, {}) if uid else {}
+    if invoice_control_runtime.handle_billing_address(update or {}):
+        return
     code = department_patch._dept(data, uid) if uid else 'STR'
 
     incoming_text = str(((update or {}).get('message') or {}).get('text') or '')
