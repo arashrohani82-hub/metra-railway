@@ -551,7 +551,7 @@ def handle_update_runtime(data):
                     return
                 session[field] = value
                 if field == "addr":
-                    session["project_address"] = value
+                    session.setdefault("project_address", value)
                 session.pop("waiting_invoice_client_field", None)
                 legacy.user_data[uid] = session
                 legacy.save_user_data()
