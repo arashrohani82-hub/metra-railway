@@ -2267,6 +2267,15 @@ def _do_create_project(chat_id, uid, offer_ref=None):
     history_record = None
     if offer_ref:
         history_record = offers_history.get(uid, {}).get(offer_ref)
+        if not history_record:
+            try:
+                from ods_recovery import _recover_from_xlsx
+                offer_ref = _recover_from_xlsx(uid, offer_ref) or offer_ref
+                history_record = offers_history.get(uid, {}).get(offer_ref)
+            except Exception as exc:
+                logger.exception('Project offer recovery failed')
+                tg(chat_id, f"❌ Récupération de l'offre impossible : {exc}")
+                return
         data = (history_record or {}).get('data')
     else:
         data = user_data.get(uid)

@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 import openpyxl
 import requests
 
+from offer_identity import reference as ods_reference, matches as ods_matches
+
 import menu_guard_runtime as guarded
 from offer_followup import (
     FollowupStore, build_followup_email, followup_stage, is_open_offer,
@@ -59,8 +61,7 @@ def _ack(callback):
 
 def _reference(value):
     text = str(value or "").strip()
-    match = re.search(r"ODS\d{2}-\d{3}(?:-[A-Z]{3})?", text, re.I)
-    return match.group(0).upper() if match else text[:80]
+    return ods_reference(text) or text[:80]
 
 
 def _amount(value):
@@ -375,7 +376,7 @@ def show_open_offers(chat_id, uid, month_key):
         stage = followup_stage(offer["date"], local_now().date())
         warning = "🔴 " if stage["days"] >= 60 else "🟠 " if stage["days"] >= 30 else "⚪ "
         label = f"{warning}{stage['days']}j · {offer['reference']} · {offer['contact'] or 'Client'}"
-        rows.append([{"text": label[:62], "callback_data": f"of_pick:{index}"}])
+        rows.append([{"text": label[:62], "callback_data": f"of_pick:{offer['reference']}"}])
     session["offer_followup_choices"] = choices
     session["offer_followup_month"] = month_key
     session.pop("offer_followup_selected", None)
@@ -604,11 +605,28 @@ def do_send_followup_email(chat_id, uid, test_only=False):
 
 
 def _history_reference(uid, reference):
-    for ref, record in (legacy.offers_history.get(str(uid), {}) or {}).items():
-        data = (record or {}).get("data") or {}
-        if reference.upper() in str(ref).upper() or reference.upper() in str(data.get("odsNum") or "").upper():
-            return ref
-    return ""
+    candidates = [ref for ref, record in (legacy.offers_history.get(str(uid), {}) or {}).items()
+                  if ods_matches((record or {}).get("data", {}).get("odsNum") or ref, reference)]
+    return candidates[0] if len(candidates) == 1 else ""
+
+
+def _message_reference(callback):
+    """Old detail buttons have no ID; use their own message, never the session."""
+    text = str((callback.get("message") or {}).get("text") or "")
+    match = re.match(r"^📬\s+(ODS[^\s]+)", text)
+    return ods_reference(match.group(1)) if match else ""
+
+
+def _choice_reference(callback, choice):
+    if ods_reference(choice):
+        return ods_reference(choice)
+    # Historical list buttons used indices. Recover only from that button's
+    # label in the original message, not an index in a newer month's session.
+    keyboard = ((callback.get("message") or {}).get("reply_markup") or {}).get("inline_keyboard") or []
+    refs = {ods_reference(button.get("text")) for row in keyboard for button in row
+            if button.get("callback_data") == f"of_pick:{choice}"}
+    refs.discard("")
+    return refs.pop() if len(refs) == 1 else ""
 
 
 def _confirm_conversion_from_followup(chat_id, uid, offer):
@@ -629,7 +647,7 @@ def _confirm_conversion_from_followup(chat_id, uid, offer):
     record = (legacy.offers_history.get(str(uid)) or {}).get(ref) or {}
     data = record.get("data") or {}
     # A partial identifier must never silently select a different offer.
-    if not str(data.get("odsNum") or ref).upper().startswith(reference.upper()):
+    if not ods_matches(data.get("odsNum") or ref, reference):
         legacy.tg(chat_id, "❌ Le fichier retrouvé ne correspond pas à l'offre sélectionnée.")
         return
     legacy.show_offer_conversion_confirmation(chat_id, uid, ref)
@@ -687,7 +705,12 @@ def handle_update_offer_followup(data):
         elif cdata.startswith("of_pick:"):
             choice = cdata.split(":", 1)[1]
             session = _session(uid)
-            offer = (session.get("offer_followup_choices") or {}).get(choice)
+            reference = _choice_reference(callback, choice)
+            offers = [offer for month in (session.get("offer_followup_months") or {}).values() for offer in month]
+            candidates = [offer for offer in offers if offer.get("reference") == reference] if reference else []
+            if not candidates and reference:
+                candidates = [offer for offer in load_open_offers() if offer.get("reference") == reference]
+            offer = candidates[0] if len(candidates) == 1 else None
             if not offer:
                 legacy.tg(chat_id, "❌ Liste expirée. Ouvrez de nouveau Suivi offres.")
                 return
@@ -740,11 +763,8 @@ def handle_update_offer_followup(data):
             except Exception as exc:
                 legacy.tg(chat_id, f"❌ Mise à jour impossible : {exc}")
         elif cdata.startswith("of_convert"):
-            if not cdata.startswith("of_convert:"):
-                legacy.tg(chat_id, "⚠️ Ancien bouton expiré. Ouvrez de nouveau l'offre dans Suivi offres.")
-                return
-            reference = cdata.split(":", 1)[1]
-            if not re.fullmatch(r"ODS\d{2}-\d{3,4}(?:-[A-Z]{3})?", reference, re.I):
+            reference = cdata.split(":", 1)[1] if cdata.startswith("of_convert:") else _message_reference(callback)
+            if not reference or ods_reference(reference) != reference.upper():
                 legacy.tg(chat_id, "❌ Numéro d'offre invalide. Ouvrez de nouveau Suivi offres.")
                 return
             legacy.tg(chat_id, f"🔎 Recherche de l'offre archivée {reference}...")

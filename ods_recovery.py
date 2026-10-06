@@ -5,6 +5,7 @@ from datetime import datetime
 
 import openpyxl
 import app as ods
+from offer_identity import reference as ods_reference, matches as ods_matches
 
 BASE_ARCHIVE_ROOTS = (
     "Metra Structure Inc/Offre de service",
@@ -17,6 +18,9 @@ _original_show_pending_offers = ods.show_pending_offers
 
 def _normalize_query(query):
     text = str(query or "").strip().upper()
+    explicit = ods_reference(text)
+    if explicit:
+        return explicit
     digits = re.search(r"(?:ODS(\d{2})-)?(\d{1,4})", text)
     if not digits:
         return text
@@ -76,9 +80,11 @@ def _find_archived_xlsx(ref):
         candidates = []
         for item in items:
             name = str(item.get("name") or "")
-            if name.lower().endswith(".xlsx") and ref.casefold() in name.casefold():
+            if name.lower().endswith(".xlsx") and ods_matches(name, ref):
                 candidates.append(name)
         if candidates:
+            if len({ods_reference(name) for name in candidates}) > 1:
+                raise ValueError("Plusieurs offres correspondent; utilisez le numéro ODS complet.")
             filename = sorted(
                 candidates,
                 key=lambda n: (0 if n.upper().startswith(ref.upper()) else 1, len(n)),
@@ -91,13 +97,16 @@ def _find_archived_xlsx(ref):
 
 def _recover_from_xlsx(uid, query):
     ref = _normalize_query(query)
-    if not re.fullmatch(r"ODS\d{2}-\d{3,4}", ref, re.I):
+    if ods_reference(ref) != ref:
         return None
 
     records = ods.offers_history.get(str(uid), {})
-    for existing_ref in records:
-        if ref.casefold() in str(existing_ref).casefold():
-            return existing_ref
+    existing = [key for key, record in records.items()
+                if ods_matches((record.get("data") or {}).get("odsNum") or key, ref)]
+    if len(existing) > 1:
+        raise ValueError("Plusieurs offres correspondent; utilisez le numéro ODS complet.")
+    if existing:
+        return existing[0]
 
     found = _find_archived_xlsx(ref)
     if not found:
@@ -136,6 +145,8 @@ def _recover_from_xlsx(uid, query):
     cell_match = re.search(full_pattern, ods_cell, re.I) or re.search(old_pattern, ods_cell, re.I)
     ods_match = filename_match or cell_match
     ods_num = ods_match.group(0).upper() if ods_match else ref
+    if not ods_matches(ods_num, ref):
+        raise ValueError("Le fichier archivé ne correspond pas au numéro ODS demandé.")
 
     department = "STR"
     file_code = "PRJ"
@@ -196,3 +207,20 @@ def show_pending_offers_with_recovery(chat_id, uid, query=""):
 
 ods.show_pending_offers = show_pending_offers_with_recovery
 ods.logger.warning("ODS ONEDRIVE RECOVERY ACTIVE v3: department folders + full STR/CIV/GEO refs")
+
+
+_original_confirmation = ods.show_offer_conversion_confirmation
+
+
+def show_conversion_with_recovery(chat_id, uid, ref):
+    """Reopen a reference-bearing old button even after local history is lost."""
+    try:
+        restored = _recover_from_xlsx(uid, ref)
+    except Exception as exc:
+        ods.logger.exception("ODS confirmation recovery failed")
+        ods.tg(chat_id, f"❌ Récupération de l'offre impossible : {exc}")
+        return
+    return _original_confirmation(chat_id, uid, restored or ref)
+
+
+ods.show_offer_conversion_confirmation = show_conversion_with_recovery
