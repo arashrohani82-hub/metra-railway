@@ -146,6 +146,16 @@ household_bot.logger.warning(
 # Load this last so no later runtime layer can restore the old email signature.
 import final_email_branding  # noqa: E402,F401
 
+# Install after all French document/email patches so English output covers the
+# actual production templates rather than an earlier, overwritten generator.
+import proposal_language  # noqa: E402
+proposal_language.install(ods_app, department_patch)
+_french_department_dispatch = department_dispatch
+
+
+def department_dispatch(update):
+    return proposal_language.dispatch(update, _french_department_dispatch, ods_app, department_patch)
+
 
 def _repair_pending_ods_list():
     # Railway keeps offer history on its persistent volume. This also finds

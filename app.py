@@ -289,7 +289,7 @@ def ask_desc_options(chat_id, uid):
         addr = d.get('addr', '')
         prompt = (
             f"You prepare structural-engineering offers of service for {DISPLAY_BRAND} "
-            "Write in mature, project-specific structural-engineering French. Never invent a test, deliverable, quantity, "
+            f"Write in mature, project-specific structural-engineering {'Canadian English' if d.get('language') == 'en' else 'French'}. Never invent a test, deliverable, quantity, "
             "investigation extent, code review, design task, or professional commitment that the "
             "client did not request or that the context does not justify. Avoid promotional wording. "
             "Prepare ONE proposal only, using this exact JSON schema: "

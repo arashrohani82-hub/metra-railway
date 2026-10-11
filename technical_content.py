@@ -7,6 +7,7 @@ import threading
 
 
 TECHNICAL_HEADERS = {
+    "scope", "scope of services", "service description", "short scope", "mandate",
     "services",
     "description des services",
     "portée des services",
@@ -152,7 +153,7 @@ def parse_custom_technical_content(text, current_mandate="", max_services=5):
         if header_match and header_match.group(1).strip().lower() in TECHNICAL_HEADERS:
             flush_service()
             header = header_match.group(1).strip().lower()
-            section = "services" if "service" in header else "mandate"
+            section = "services" if "service" in header or header == "scope" else "mandate"
             line = header_match.group(2).strip()
             if not line:
                 continue
