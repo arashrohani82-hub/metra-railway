@@ -261,7 +261,8 @@ def ask_desc_options(chat_id, uid):
         addr = d.get('addr', '')
         prompt = (
             f"You prepare {meta['discipline']} offers of service for {legacy.DISPLAY_BRAND}. "
-            f"Write in mature, project-specific French appropriate to {meta['discipline_fr']}. "
+            f"Write in mature, project-specific {'Canadian English' if d.get('language') == 'en' else 'French'} appropriate to {meta['discipline']}. "
+            f"Project province: {d.get('province') or 'not confirmed'}. Do not assume a provincial licence or firm permit. "
             "Never invent a test, deliverable, quantity, investigation extent, code review, design task, "
             "or professional commitment that the client did not request or that the context does not justify. "
             "Avoid promotional wording. Prepare ONE proposal only, using this exact JSON schema: "
@@ -281,7 +282,7 @@ def ask_desc_options(chat_id, uid):
                "flow regulator, oil and sediment separator, retention basin or pumping station only if required; "
                "civil plans for permit and construction when requested. " if code == 'CIV' else "")
             +
-            "Use 'le cas échéant' only for genuinely conditional work. "
+            "Use 'where applicable' (English) or 'le cas échéant' (French) only for genuinely conditional work. "
             "Client request/context: " + raw_desc + ". "
             "Initially detected service: " + service + ". Property/site: " + property_type + ". "
             "Project address: " + addr + ". Return ONLY valid JSON."

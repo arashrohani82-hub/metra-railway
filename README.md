@@ -18,6 +18,33 @@ Attach a Railway volume at `/data` before deploying. After deployment, register 
 
 Never commit real tokens or secret values.
 
+## English service proposals (QC / ON / BC)
+
+Start with `/start` or `/new`, select **English** or **Français**, then select
+the project province and the STR/CIV/GEO department. The same confirmed scope,
+fees, payment terms, selected conditions and exclusions are used in each
+language. English mode covers Telegram questions/buttons, PDF, editable Excel,
+proposal email preview/outgoing email and confirmed proposal follow-up emails.
+
+Language/province are saved in draft and offer history and restored after photo
+or text extraction. Numbering, callback identifiers and OneDrive paths remain
+unchanged. Background jobs retain the current language. Standard translations
+are bundled in `english_standard_text.json`; dynamic text is translated using
+the existing Anthropic client, batched and cached on the persistent volume.
+Translation failures or altered numbers/references stop document generation.
+No additional API credential is required. The source draft is not rewritten by
+document translation, and email still requires the existing send confirmation.
+
+Province selection identifies the project; it does not certify individual or
+firm registration, choose a tax rate, or modify the existing invoice engine.
+The English proposal states whether taxes are extra or included, as confirmed
+in the source workflow. Verify Ontario PEO licensing/Certificate of Authorization
+and BC EGBC registration/Permit to Practice before offering regulated services.
+
+Validation: `ANTHROPIC_API_KEY=test-local-only DATA_DIR=/tmp/metra-tests python -m unittest test_proposal_language test_civil_exclusions test_technical_content test_security`.
+Provider and Telegram I/O are mocked in the language integration tests; no
+customer email is sent and no production draft is edited during tests.
+
 
 ## Invoice generation MVP
 
