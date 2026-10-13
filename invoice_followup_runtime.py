@@ -19,14 +19,14 @@ def show(chat_id):
         legacy.tg(chat_id, "❌ Impossible de consulter OneDrive. Réessayez plus tard.")
         return
     if not projects:
-        legacy.tg(chat_id, "📨 Suivi des factures\\nAucun projet trouvé.")
+        legacy.tg(chat_id, "📨 Suivi des factures\nAucun projet trouvé.")
         return
     lines = ["📨 Suivi des factures — consultation", "",
              "Projets récents (lecture seule) :"]
     lines.extend("• " + str(item.get("name") or "")[:75] for item in projects[:20])
     lines.extend(["", "⚠️ Statuts de paiement non vérifiés.",
                   "Aucune relance client ne sera envoyée sans validation."])
-    legacy.tg(chat_id, "\\n".join(lines))
+    legacy.tg(chat_id, "\n".join(lines))
 
 
 def handle(update):
