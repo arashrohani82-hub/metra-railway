@@ -16,6 +16,8 @@ import ods_recovery  # noqa: E402,F401
 # treated as arbitrary client text.
 import invoice_control_runtime  # noqa: E402,F401
 import payment_receipt_runtime  # noqa: E402,F401
+import invoice_followup_runtime  # noqa: E402
+invoice_followup_runtime.install_menu()
 import dashboard_runtime  # noqa: E402,F401  # registers /router/company-metrics for CEO dashboard
 import ods_runtime as invoice_runtime  # noqa: E402
 # Restore the established offer follow-up chain before the department router
@@ -55,6 +57,8 @@ def department_dispatch(update):
     user = callback.get('from') or (update or {}).get('message', {}).get('from') or {}
     uid = str(user.get('id') or chat_id or '')
     data = ods_app.user_data.get(uid, {}) if uid else {}
+    if invoice_followup_runtime.handle(update or {}):
+        return
     if payment_receipt_runtime.handle_update(update or {}):
         return
     if invoice_control_runtime.handle_billing_address(update or {}):
