@@ -79,7 +79,7 @@ def bot_open_button(key, label):
 def main_menu():
     return [
         [bot_open_button("ods", "🧾 ODS / Offers"), bot_open_button("bookkeeping", "📚 Bookkeeping")],
-        [bot_open_button("guardian", "🛡 Guardian"), bot_open_button("intelligence", "🌎 Intelligence")],
+        [{"text": "📊 Contrôle des projets", "url": "https://t.me/Metra_Project_Control_bot"}, bot_open_button("intelligence", "🌎 Intelligence")],
         [bot_open_button("language", "🗣 Language"), bot_open_button("website", "🌐 Website")],
         [bot_open_button("inspection", "🏗 Inspection / Report")],
         [bot_open_button("shopping", "🛒 Home Shopping"), bot_open_button("arvin", "👦 Arvin Daily")],

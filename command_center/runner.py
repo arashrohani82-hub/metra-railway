@@ -47,7 +47,7 @@ command_center.bot_open_button = direct_bot_open_button
 def launcher_menu():
     return [
         [command_center.bot_open_button("ods", "🧾 ODS / Offers"), command_center.bot_open_button("bookkeeping", "📚 Bookkeeping")],
-        [command_center.bot_open_button("guardian", "🛡 Guardian"), command_center.bot_open_button("intelligence", "🌎 Intelligence")],
+        [{"text": "📊 Contrôle des projets", "url": "https://t.me/Metra_Project_Control_bot"}, command_center.bot_open_button("intelligence", "🌎 Intelligence")],
         [command_center.bot_open_button("language", "🗣 Language"), command_center.bot_open_button("website", "🌐 Website")],
         [command_center.bot_open_button("inspection", "🏗 Inspection / Report")],
         [command_center.bot_open_button("shopping", "🛒 Home Shopping"), command_center.bot_open_button("arvin", "👦 Arvin Daily")],
