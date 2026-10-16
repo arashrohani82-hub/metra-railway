@@ -50,3 +50,12 @@ def test_invoice_project_selection_reaches_onedrive_invoice_flow():
             "from": {"id": user_id}, "message": {"chat": {"id": user_id}},
         }})
         select.assert_called_once_with(user_id, str(user_id), "2")
+
+
+def test_review_button_reaches_project_selector():
+    import google_review_runtime
+    user_id = 987654324
+    with patch.object(app, 'ALLOWED_USERS', {user_id}), patch.object(google_review_runtime, 'show_projects') as projects:
+        runtime.department_dispatch({'message': {'from': {'id': user_id}, 'chat': {'id': user_id}, 'text': google_review_runtime.BUTTON}})
+        projects.assert_called_once_with(user_id, str(user_id))
+    assert any(cell.get('text') == google_review_runtime.BUTTON for row in app.main_menu()['keyboard'] for cell in row)
