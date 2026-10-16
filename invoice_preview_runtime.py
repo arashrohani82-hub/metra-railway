@@ -162,13 +162,12 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
     data = legacy.user_data.get(uid, {})
     if not data.get('project_folder'):
         legacy.tg(chat_id, "❌ Projet introuvable. Ouvrez de nouveau Facturation.")
-        return
+        return False
 
     missing = [
         label for field, label in (
             ('name', 'nom du client'),
             ('addr', 'adresse'),
-            ('phone', 'téléphone'),
             ('email', 'courriel'),
         )
         if not str(data.get(field) or '').strip()
@@ -182,7 +181,7 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
             "À compléter : " + ", ".join(missing) + ".\n\n"
             "Rouvrez Facturation et sélectionnez ce projet; le bot vous demandera chaque information manquante.",
         )
-        return
+        return False
 
     try:
         values = legacy.invoice_values(data.get('price') or 0, percentage, fixed_amount)
@@ -245,10 +244,12 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
                 [{'text': '❌ Annuler', 'callback_data': 'invoice_cancel'}],
             ],
         )
+        return True
     except Exception as exc:
         logger.exception('Invoice PDF preview failed')
         legacy.tg(chat_id, f"❌ Impossible de générer l'aperçu PDF : {exc}")
 
+        return False
 
 legacy.show_invoice_preview = show_invoice_preview_pdf
 logger.info(
