@@ -32,6 +32,8 @@ import department_storage_fix  # noqa: E402,F401
 import email_branding_patch  # noqa: E402,F401
 
 import app as ods_app
+import google_review_runtime  # noqa: E402
+google_review_runtime.install_menu()
 
 
 def _answer_callback(callback):
@@ -57,6 +59,8 @@ def department_dispatch(update):
     user = callback.get('from') or (update or {}).get('message', {}).get('from') or {}
     uid = str(user.get('id') or chat_id or '')
     data = ods_app.user_data.get(uid, {}) if uid else {}
+    if google_review_runtime.handle(update or {}):
+        return
     if invoice_followup_runtime.handle(update or {}):
         return
     if payment_receipt_runtime.handle_update(update or {}):
