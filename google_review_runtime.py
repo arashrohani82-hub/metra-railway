@@ -26,20 +26,28 @@ def build_request(data, folder):
     brand = str(getattr(legacy, 'DISPLAY_BRAND', 'Metra Consultation'))
     if data.get('language') == 'en':
         greeting = f'Hello {name},' if name else 'Hello,'
-        subject = f'{folder} — Thank you for your trust'
-        body = (f'{greeting}\n\nThank you for trusting {brand} with your project. '
-                'Now that our work is complete, we would appreciate it if you could '
-                'take a moment to share your experience on Google:\n\n'
-                f'{review_url()}\n\nYour feedback means a lot to our team. Thank you for your time!'
-                f'\n\nBest regards,\nArash Rohani\n{brand}')
+        subject = 'A quick note following our work together'
+        body = (f'{greeting}\n\nIt was a pleasure to help you with your project. '
+                'Thank you for placing your trust in us.\n\n'
+                'Would you take a moment to share your experience on Google? '
+                'Your feedback would help other property owners choose their engineer '
+                'with confidence and help more people discover our team.\n\n'
+                f'Share my experience on Google:\n{review_url()}\n\n'
+                'Thank you very much for your time. Please feel free to contact us '
+                'with any questions; we would be happy to work with you again.'
+                f'\n\nKind regards,\nArash Rohani, ing., P.Eng.\n{brand}')
     else:
         greeting = f'Bonjour {name},' if name else 'Bonjour,'
-        subject = f'{folder} — Merci de votre confiance'
-        body = (f'{greeting}\n\nMerci d’avoir fait confiance à {brand} pour votre projet. '
-                'Maintenant que notre mandat est terminé, nous vous invitons à prendre '
-                'un moment pour partager votre expérience sur Google :\n\n'
-                f'{review_url()}\n\nVotre avis compte beaucoup pour notre équipe. Merci pour votre temps !'
-                f'\n\nCordialement,\nArash Rohani\n{brand}')
+        subject = 'Un petit mot à la suite de notre collaboration'
+        body = (f'{greeting}\n\nCe fut un plaisir de vous accompagner dans votre projet. '
+                'Merci de nous avoir accordé votre confiance.\n\n'
+                'Accepteriez-vous de consacrer un instant à partager votre expérience sur Google ? '
+                'Votre témoignage aiderait d’autres propriétaires à choisir leur ingénieur '
+                'en confiance et contribuerait à faire connaître notre équipe.\n\n'
+                f'Partager mon expérience sur Google :\n{review_url()}\n\n'
+                'Un grand merci pour votre temps. Nous restons à votre disposition pour toute '
+                'question et serons heureux de vous accompagner à nouveau.'
+                f'\n\nBien cordialement,\nArash Rohani, ing., P.Eng.\n{brand}')
     return subject, body
 
 
