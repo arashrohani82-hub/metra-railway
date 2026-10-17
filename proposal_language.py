@@ -418,6 +418,11 @@ def dispatch(update, original, ods, departments):
         # keyboard entry differently from the canonical standard catalogue.
         with _LOCK:
             replies.update({v: k for k, v in _CACHE.items() if k in ('📝 Nouvelle offre', '❌ Annuler', '❓ Aide', '📁 Convertir une offre en projet', '🧾 Facturation', '🧾 Facturer un projet', '📬 Suivi offres', '📷 Envoyer une photo', '📋 Coller un texte')})
+        replies['⭐ Request a Google review'] = '⭐ Demander un avis Google'
+        with _LOCK:
+            translated_review = _CACHE.get('⭐ Demander un avis Google')
+        if translated_review:
+            replies[translated_review] = '⭐ Demander un avis Google'
         if text in replies:
             update = copy.deepcopy(update)
             update['message']['text'] = replies[text]
@@ -430,3 +435,4 @@ def dispatch(update, original, ods, departments):
     finally:
         USER.reset(user_token)
         LANGUAGE.reset(token)
+

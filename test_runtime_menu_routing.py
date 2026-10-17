@@ -59,3 +59,13 @@ def test_review_button_reaches_project_selector():
         runtime.department_dispatch({'message': {'from': {'id': user_id}, 'chat': {'id': user_id}, 'text': google_review_runtime.BUTTON}})
         projects.assert_called_once_with(user_id, str(user_id))
     assert any(cell.get('text') == google_review_runtime.BUTTON for row in app.main_menu()['keyboard'] for cell in row)
+
+
+def test_menu_refresh_includes_review_button():
+    import google_review_runtime
+    user_id = 987654325
+    with patch.object(app, 'ALLOWED_USERS', {user_id}), patch.object(app, 'tg') as tg, patch.object(app, 'save_user_data'):
+        runtime.department_dispatch({'message': {'from': {'id': user_id}, 'chat': {'id': user_id}, 'text': '/menu'}})
+        keyboard = tg.call_args.kwargs['reply_markup']['keyboard']
+        assert any(cell.get('text') == google_review_runtime.BUTTON for row in keyboard for cell in row)
+

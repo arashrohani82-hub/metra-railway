@@ -83,7 +83,7 @@ def handle_update_menu_guard(data):
             legacy.tg(
                 chat_id,
                 "👋 Metra Consultation\n\nChoisissez une opération :",
-                reply_markup=final_main_menu(),
+                reply_markup=legacy.main_menu(),
             )
             return
 
@@ -92,3 +92,4 @@ def handle_update_menu_guard(data):
 
 legacy.handle_update = handle_update_menu_guard
 logger.info("MAIN MENU GUARD ACTIVE — FACTURATION PERSISTENT")
+

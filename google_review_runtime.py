@@ -1,6 +1,7 @@
-"""Prepare Google review requests for completed projects without sending mail."""
+"""Preview and explicitly confirm Google review requests for completed projects."""
 import os
 import secrets
+import sqlite3
 import urllib.parse
 
 import app as legacy
@@ -79,7 +80,7 @@ def show_page(chat_id, uid, page):
     if navigation:
         rows.append(navigation)
     legacy.tg(chat_id, '⭐ Demander un avis Google\n\nChoisissez un projet dont le mandat est terminé '
-              '(année en cours). Le message sera préparé pour copie, sans envoi automatique.', rows)
+              '(année en cours). Vérifiez le message et le destinataire avant de confirmer l’envoi.', rows)
 
 
 def prepare(chat_id, uid, index):
@@ -99,11 +100,78 @@ def prepare(chat_id, uid, index):
                     data[key] = value
         subject, body = build_request(data, folder)
         email = legacy.valid_client_email(data.get('email')) or 'à confirmer'
+        nonce = secrets.token_hex(8)
+        session = legacy.user_data.setdefault(uid, {})
+        session['google_review_pending'] = {
+            'nonce': nonce, 'folder': folder, 'recipient': email,
+            'subject': subject, 'body': body,
+        }
+        legacy.save_user_data()
         legacy.tg(chat_id, f'⭐ Message prêt à copier\nProjet : {folder}\nCourriel : {email}\nObjet : {subject}')
-        legacy.tg(chat_id, body, [[{'text': '🌐 Ouvrir le lien Google', 'url': review_url()}]])
+        rows = [[{'text': '🌐 Ouvrir le lien Google', 'url': review_url()}]]
+        if email != 'à confirmer':
+            rows.append([{'text': '✅ Confirmer et envoyer par courriel',
+                          'callback_data': f'{PREFIX}{nonce}:send:0'}])
+        rows.append([{'text': '❌ Annuler l’envoi', 'callback_data': f'{PREFIX}{nonce}:cancel:0'}])
+        # The approved body must be exactly what is sent, including client language.
+        from proposal_language import LANGUAGE
+        language_token = LANGUAGE.set('fr')
+        try:
+            legacy.tg(chat_id, body, rows)
+        finally:
+            LANGUAGE.reset(language_token)
     except Exception:
         legacy.logger.exception('Google review preparation failed')
         legacy.tg(chat_id, '❌ Impossible de préparer le message. Réessayez plus tard.')
+
+
+def send_request(chat_id, uid, nonce):
+    pending = dict(legacy.user_data.get(uid, {}).get('google_review_pending') or {})
+    if not pending or not secrets.compare_digest(str(pending.get('nonce', '')), nonce):
+        legacy.tg(chat_id, 'Aperçu expiré. Préparez de nouveau la demande.')
+        return
+    recipient = legacy.valid_client_email(pending.get('recipient'))
+    if not recipient:
+        legacy.tg(chat_id, '❌ Adresse courriel client manquante ou invalide.')
+        return
+    # Resolve credentials before claiming the send; never store tokens in the journal.
+    try:
+        config = legacy.microsoft_email_config()
+        token = legacy.graph_access_token()
+        sender = urllib.parse.quote(config['EMAIL_SENDER'], safe='')
+    except Exception:
+        legacy.logger.exception('Google review email configuration failed')
+        legacy.tg(chat_id, '❌ Connexion Microsoft 365 impossible. Aucun courriel envoyé.')
+        return
+    folder = pending['folder']
+    with sqlite3.connect(os.path.join(legacy.DATA_DIR, 'google_review_sends.sqlite3')) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS sends (project TEXT PRIMARY KEY, recipient TEXT, status TEXT)')
+        result = db.execute('INSERT OR IGNORE INTO sends VALUES (?, ?, ?)', (folder, recipient, 'sending'))
+        claimed = result.rowcount == 1
+    if not claimed:
+        legacy.tg(chat_id, '⚠️ Demande déjà envoyée ou en cours pour ce projet. Consultez les éléments envoyés avant toute nouvelle tentative.')
+        return
+    try:
+        response = legacy.req.post(
+            f'https://graph.microsoft.com/v1.0/users/{sender}/sendMail',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            json={'message': {'subject': pending['subject'],
+                              'body': {'contentType': 'Text', 'content': pending['body']},
+                              'toRecipients': [{'emailAddress': {'address': recipient}}]},
+                  'saveToSentItems': True}, timeout=45,
+        )
+        if response.status_code != 202:
+            raise RuntimeError(f'Microsoft 365 status {response.status_code}')
+    except Exception:
+        # Retain the durable claim after a timeout: delivery could have succeeded.
+        legacy.logger.exception('Google review send not confirmed')
+        legacy.tg(chat_id, '⚠️ Envoi non confirmé. Vérifiez les éléments envoyés Microsoft 365 ; aucune nouvelle tentative automatique.')
+        return
+    with sqlite3.connect(os.path.join(legacy.DATA_DIR, 'google_review_sends.sqlite3')) as db:
+        db.execute('UPDATE sends SET status = ? WHERE project = ?', ('sent', folder))
+    legacy.user_data.get(uid, {}).pop('google_review_pending', None)
+    legacy.save_user_data()
+    legacy.tg(chat_id, f'✅ Demande d’avis acceptée par Microsoft 365 pour {recipient}.')
 
 
 def handle(update):
@@ -127,6 +195,17 @@ def handle(update):
     except Exception:
         pass
     parts = cdata.split(':')
+    if len(parts) == 4 and parts[2] in ('send', 'cancel'):
+        pending = legacy.user_data.get(uid, {}).get('google_review_pending') or {}
+        if parts[1] != pending.get('nonce'):
+            legacy.tg(chat_id, 'Aperçu expiré. Préparez de nouveau la demande.')
+        elif parts[2] == 'send':
+            send_request(chat_id, uid, parts[1])
+        else:
+            legacy.user_data[uid].pop('google_review_pending', None)
+            legacy.save_user_data()
+            legacy.tg(chat_id, '✅ Envoi annulé.')
+        return True
     choices = legacy.user_data.get(uid, {}).get('google_review_choices') or {}
     if len(parts) != 4 or parts[1] != choices.get('token') or not parts[3].isdigit():
         legacy.tg(chat_id, 'Sélection expirée. Ouvrez de nouveau « Demander un avis Google ».')
@@ -149,3 +228,4 @@ def install_menu():
         return result
 
     legacy.main_menu = menu
+

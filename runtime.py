@@ -59,6 +59,14 @@ def department_dispatch(update):
     user = callback.get('from') or (update or {}).get('message', {}).get('from') or {}
     uid = str(user.get('id') or chat_id or '')
     data = ods_app.user_data.get(uid, {}) if uid else {}
+    if not callback and str(message.get('text') or '').strip() == '/menu':
+        if user.get('id') not in ods_app.ALLOWED_USERS:
+            ods_app.tg(chat_id, '⛔ Ce bot est privé.')
+            return
+        # Bypass older handlers that can consume /menu as free-form ODS text.
+        ods_app.tg(chat_id, '👋 Metra Consultation\n\nChoisissez une opération :',
+                   reply_markup=ods_app.main_menu())
+        return
     if google_review_runtime.handle(update or {}):
         return
     if invoice_followup_runtime.handle(update or {}):
@@ -179,3 +187,4 @@ def _repair_pending_ods_list():
 
 
 threading.Thread(target=_repair_pending_ods_list, name='ods-list-reconciliation', daemon=True).start()
+
