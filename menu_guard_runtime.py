@@ -17,7 +17,6 @@ def final_main_menu():
             [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '🧾 Facturation'}],
             [{'text': '📊 Tableau de bord'}],
-            [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
             [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
         ],
         'resize_keyboard': True,
