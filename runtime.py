@@ -35,6 +35,18 @@ import app as ods_app
 import google_review_runtime  # noqa: E402
 google_review_runtime.install_menu()
 
+_menu_refresh_lock = threading.Lock()
+_menu_refreshed_chats = set()
+
+
+def refresh_reply_keyboard(chat_id):
+    """Replace Telegram's cached keyboard once on the next authorized interaction."""
+    with _menu_refresh_lock:
+        if chat_id in _menu_refreshed_chats:
+            return
+        if ods_app.tg(chat_id, '📋 Menu mis à jour.', reply_markup=ods_app.main_menu()):
+            _menu_refreshed_chats.add(chat_id)
+
 
 def _answer_callback(callback):
     callback_id = (callback or {}).get('id')
@@ -59,6 +71,8 @@ def department_dispatch(update):
     user = callback.get('from') or (update or {}).get('message', {}).get('from') or {}
     uid = str(user.get('id') or chat_id or '')
     data = ods_app.user_data.get(uid, {}) if uid else {}
+    if chat_id and user.get('id') in ods_app.ALLOWED_USERS:
+        refresh_reply_keyboard(chat_id)
     if not callback and str(message.get('text') or '').strip() == '/menu':
         if user.get('id') not in ods_app.ALLOWED_USERS:
             ods_app.tg(chat_id, '⛔ Ce bot est privé.')

@@ -54,7 +54,6 @@ def invoicing_main_menu():
             [{'text': '📝 Nouvelle offre'}],
             [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '🧾 Facturation'}],
-            [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
             [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
         ],
         'resize_keyboard': True,
@@ -359,3 +358,4 @@ def debug_ods_number():
             'error': str(exc),
             'function': getattr(legacy.get_next_project_num, '__name__', ''),
         }), 500
+

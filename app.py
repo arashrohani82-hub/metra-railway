@@ -467,7 +467,6 @@ def main_menu():
             [{'text': '📝 Nouvelle offre'}],
             [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '🧾 Facturation'}],
-            [{'text': '📷 Envoyer une photo'}, {'text': '📋 Coller un texte'}],
             [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
         ],
         'resize_keyboard': True,
@@ -2847,3 +2846,4 @@ def status():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
