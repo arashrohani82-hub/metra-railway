@@ -384,6 +384,9 @@ def dispatch(update, original, ods, departments):
             departments.DEPT_BY_UID.pop(uid, None)
             PREFERENCES.pop(uid, None)
             ods.save_user_data()
+            # Reply keyboards persist when Telegram receives only inline buttons.
+            # Replace the cached menu before asking for the new proposal language.
+            ods.tg(chat_id, '👋 Metra Consultation — Nouvelle offre', reply_markup=ods.main_menu())
             language_menu()
             return
         if cdata.startswith('ods_lang:'):
