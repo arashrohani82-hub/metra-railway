@@ -53,7 +53,8 @@ def test_confirmed_send_uses_preview_and_prevents_duplicate_after_restart(tmp_pa
         review.send_request(123, '123', 'confirmed')
         message = post.call_args.kwargs['json']['message']
         assert message['toRecipients'][0]['emailAddress']['address'] == pending['recipient']
-        assert message['body']['content'] == 'Preview body'
+        assert 'Preview body' in message['body']['content']
+        assert message['body']['contentType'] == 'HTML'
         assert 'google_review_pending' not in review.legacy.user_data['123']
         review.legacy.user_data['123']['google_review_pending'] = pending
         review.send_request(123, '123', 'confirmed')
@@ -74,4 +75,18 @@ def test_cancel_never_sends():
         review.handle({'callback_query': {'id': 'cancel', 'data': 'google_review:abc:cancel:0', 'from': {'id': 123}, 'message': {'chat': {'id': 123}}}})
         send.assert_not_called()
         assert 'google_review_pending' not in review.legacy.user_data['123']
+
+
+def test_review_uses_first_name_and_regular_logo_signature_in_both_languages():
+    import runtime
+    for language, greeting in [('fr', 'Bonjour Marc,'), ('en', 'Hello Marc,')]:
+        _, body = review.build_request({'name': 'M. Marc Guay', 'language': language}, 'P26-001')
+        assert body.startswith(greeting)
+        assert 'Bonjour Marc Guay,' not in body
+        markup = review.request_email_html(body)
+        assert markup.count('Arash Rohani, ing., P.Eng.') == 1
+        assert '/assets/metra-logo.png' in markup
+        assert 'mailto:a.rohani@metraconsultation.ca' in markup
+        assert 'tel:+14388674131' in markup
+        assert f'href="{review.DEFAULT_REVIEW_URL}"' in markup
 

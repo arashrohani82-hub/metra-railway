@@ -1,5 +1,6 @@
 """Preview and explicitly confirm Google review requests for completed projects."""
 import os
+import html
 import secrets
 import sqlite3
 import urllib.parse
@@ -22,10 +23,11 @@ def review_url():
 
 
 def build_request(data, folder):
-    name = str(data.get('name') or '').strip()
+    name = legacy.normalize_client_name(data.get('name'))
+    first_name = name.split()[0].strip(',;:') if name else ''
     brand = str(getattr(legacy, 'DISPLAY_BRAND', 'Metra Consultation'))
     if data.get('language') == 'en':
-        greeting = f'Hello {name},' if name else 'Hello,'
+        greeting = f'Hello {first_name},' if first_name else 'Hello,'
         subject = 'A quick note following our work together'
         body = (f'{greeting}\n\nIt was a pleasure to help you with your project. '
                 'Thank you for placing your trust in us.\n\n'
@@ -35,9 +37,11 @@ def build_request(data, folder):
                 f'Share my experience on Google:\n{review_url()}\n\n'
                 'Thank you very much for your time. Please feel free to contact us '
                 'with any questions; we would be happy to work with you again.'
-                f'\n\nKind regards,\nArash Rohani, ing., P.Eng.\n{brand}')
+                f'\n\nKind regards,\n\nArash Rohani, ing., P.Eng.\n'
+                f'President - Structural Engineer\n{brand}\n'
+                'a.rohani@metraconsultation.ca | (438) 867-4131\nmetraconsultation.ca')
     else:
-        greeting = f'Bonjour {name},' if name else 'Bonjour,'
+        greeting = f'Bonjour {first_name},' if first_name else 'Bonjour,'
         subject = 'Un petit mot à la suite de notre collaboration'
         body = (f'{greeting}\n\nCe fut un plaisir de vous accompagner dans votre projet. '
                 'Merci de nous avoir accordé votre confiance.\n\n'
@@ -47,8 +51,23 @@ def build_request(data, folder):
                 f'Partager mon expérience sur Google :\n{review_url()}\n\n'
                 'Un grand merci pour votre temps. Nous restons à votre disposition pour toute '
                 'question et serons heureux de vous accompagner à nouveau.'
-                f'\n\nBien cordialement,\nArash Rohani, ing., P.Eng.\n{brand}')
+                f'\n\nCordialement,\n\nArash Rohani, ing., P.Eng.\n'
+                f'Président – Ingénieur en structure\n{brand}\n'
+                'a.rohani@metraconsultation.ca | (438) 867-4131\nmetraconsultation.ca')
     return subject, body
+
+
+def request_email_html(body):
+    # Reuse the same logo, signature, contact links and styling as ODS emails.
+    formatted_body = body.replace('Partager mon expérience sur Google :\n', '').replace('Share my experience on Google:\n', '')
+    markup = legacy.email_body_html(formatted_body)
+    for line in str(body).splitlines():
+        if line.startswith('https://'):
+            escaped = html.escape(line.strip())
+            label = 'Share my experience on Google' if 'Hello' in body.split('\n', 1)[0] else 'Partager mon expérience sur Google'
+            markup = markup.replace(escaped, f'<a href="{escaped}" style="color:#1155cc;">{label}</a>', 1)
+            break
+    return markup
 
 
 def show_projects(chat_id, uid):
@@ -147,6 +166,7 @@ def send_request(chat_id, uid, nonce):
         config = legacy.microsoft_email_config()
         token = legacy.graph_access_token()
         sender = urllib.parse.quote(config['EMAIL_SENDER'], safe='')
+        email_html = request_email_html(pending['body'])
     except Exception:
         legacy.logger.exception('Google review email configuration failed')
         legacy.tg(chat_id, '❌ Connexion Microsoft 365 impossible. Aucun courriel envoyé.')
@@ -164,7 +184,7 @@ def send_request(chat_id, uid, nonce):
             f'https://graph.microsoft.com/v1.0/users/{sender}/sendMail',
             headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
             json={'message': {'subject': pending['subject'],
-                              'body': {'contentType': 'Text', 'content': pending['body']},
+                              'body': {'contentType': 'HTML', 'content': email_html},
                               'toRecipients': [{'emailAddress': {'address': recipient}}]},
                   'saveToSentItems': True}, timeout=45,
         )
