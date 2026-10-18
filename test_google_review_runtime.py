@@ -90,3 +90,18 @@ def test_review_uses_first_name_and_regular_logo_signature_in_both_languages():
         assert 'tel:+14388674131' in markup
         assert f'href="{review.DEFAULT_REVIEW_URL}"' in markup
 
+
+def test_outgoing_logo_is_embedded_not_remote():
+    import runtime
+    import base64
+    subject, body = review.build_request({'name': 'Marc Guay'}, 'P26-001')
+    message = review.build_review_email_message({'subject': subject, 'body': body}, 'client@example.com')
+    attachment = message['attachments'][0]
+    assert attachment['isInline'] is True
+    assert attachment['contentType'] == 'image/png'
+    assert f'src="cid:{attachment["contentId"]}"' in message['body']['content']
+    assert '/assets/metra-logo.png' not in message['body']['content']
+    with open(review.legacy.LOGOS['metra'], 'rb') as logo:
+        assert base64.b64decode(attachment['contentBytes']) == logo.read()
+    assert message['body']['content'].count('Arash Rohani, ing., P.Eng.') == 1
+

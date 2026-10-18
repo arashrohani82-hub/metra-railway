@@ -1,6 +1,8 @@
 """Preview and explicitly confirm Google review requests for completed projects."""
 import os
 import html
+import base64
+import re
 import secrets
 import sqlite3
 import urllib.parse
@@ -68,6 +70,25 @@ def request_email_html(body):
             markup = markup.replace(escaped, f'<a href="{escaped}" style="color:#1155cc;">{label}</a>', 1)
             break
     return markup
+
+
+def build_review_email_message(pending, recipient):
+    markup = request_email_html(pending['body'])
+    markup, replaced = re.subn(r'src="[^"]*/assets/metra-logo\.png"',
+                               'src="cid:metra-review-logo"', markup)
+    message = {'subject': pending['subject'],
+               'body': {'contentType': 'HTML', 'content': markup},
+               'toRecipients': [{'emailAddress': {'address': recipient}}]}
+    if replaced:
+        with open(legacy.LOGOS['metra'], 'rb') as logo:
+            content = base64.b64encode(logo.read()).decode('ascii')
+        message['attachments'] = [{
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            'name': 'metra-logo.png', 'contentType': 'image/png',
+            'contentId': 'metra-review-logo', 'isInline': True,
+            'contentBytes': content,
+        }]
+    return message
 
 
 def show_projects(chat_id, uid):
@@ -166,7 +187,7 @@ def send_request(chat_id, uid, nonce):
         config = legacy.microsoft_email_config()
         token = legacy.graph_access_token()
         sender = urllib.parse.quote(config['EMAIL_SENDER'], safe='')
-        email_html = request_email_html(pending['body'])
+        message = build_review_email_message(pending, recipient)
     except Exception:
         legacy.logger.exception('Google review email configuration failed')
         legacy.tg(chat_id, '❌ Connexion Microsoft 365 impossible. Aucun courriel envoyé.')
@@ -183,10 +204,7 @@ def send_request(chat_id, uid, nonce):
         response = legacy.req.post(
             f'https://graph.microsoft.com/v1.0/users/{sender}/sendMail',
             headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-            json={'message': {'subject': pending['subject'],
-                              'body': {'contentType': 'HTML', 'content': email_html},
-                              'toRecipients': [{'emailAddress': {'address': recipient}}]},
-                  'saveToSentItems': True}, timeout=45,
+            json={'message': message, 'saveToSentItems': True}, timeout=45,
         )
         if response.status_code != 202:
             raise RuntimeError(f'Microsoft 365 status {response.status_code}')
