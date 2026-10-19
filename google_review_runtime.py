@@ -40,7 +40,7 @@ def build_request(data, folder):
                 'Thank you very much for your time. Please feel free to contact us '
                 'with any questions; we would be happy to work with you again.'
                 f'\n\nKind regards,\n\nArash Rohani, ing., P.Eng.\n'
-                f'President - Structural Engineer\n{brand}\n'
+                f'President – Structural and Civil Engineer\n{brand}\n'
                 'a.rohani@metraconsultation.ca | (438) 867-4131\nmetraconsultation.ca')
     else:
         greeting = f'Bonjour {first_name},' if first_name else 'Bonjour,'
@@ -54,7 +54,7 @@ def build_request(data, folder):
                 'Un grand merci pour votre temps. Nous restons à votre disposition pour toute '
                 'question et serons heureux de vous accompagner à nouveau.'
                 f'\n\nCordialement,\n\nArash Rohani, ing., P.Eng.\n'
-                f'Président – Ingénieur en structure\n{brand}\n'
+                f'Président – Ingénieur en structure et génie civil\n{brand}\n'
                 'a.rohani@metraconsultation.ca | (438) 867-4131\nmetraconsultation.ca')
     return subject, body
 
@@ -63,6 +63,8 @@ def request_email_html(body):
     # Reuse the same logo, signature, contact links and styling as ODS emails.
     formatted_body = body.replace('Partager mon expérience sur Google :\n', '').replace('Share my experience on Google:\n', '')
     markup = legacy.email_body_html(formatted_body)
+    markup = markup.replace('Président – Ingénieur en structure</div>',
+                            'Président – Ingénieur en structure et génie civil</div>')
     for line in str(body).splitlines():
         if line.startswith('https://'):
             escaped = html.escape(line.strip())
