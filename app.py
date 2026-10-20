@@ -2140,7 +2140,6 @@ def do_issue_invoice(chat_id, uid):
             label for field, label in (
                 ('name', 'nom du client'),
                 ('addr', 'adresse'),
-                ('phone', 'téléphone'),
                 ('email', 'courriel'),
             )
             if not str(data.get(field) or '').strip()

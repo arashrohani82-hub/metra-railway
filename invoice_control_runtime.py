@@ -311,12 +311,13 @@ def show_invoice_preview_control(chat_id, uid, percentage=None, fixed_amount=Non
             return
 
         # Generate the established PDF preview first.
-        preview.show_invoice_preview_pdf(
+        if not preview.show_invoice_preview_pdf(
             chat_id,
             uid,
             percentage=percentage,
             fixed_amount=fixed_amount,
-        )
+        ):
+            return
 
         pct_after = (after / status['contract'] * 100.0) if status['contract'] else 0.0
         legacy.tg(

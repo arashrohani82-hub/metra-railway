@@ -337,7 +337,6 @@ def recover_project_metadata_from_onedrive(folder_name):
 INVOICE_CLIENT_FIELDS = (
     ("name", "nom complet du client"),
     ("addr", "adresse de facturation complète"),
-    ("phone", "numéro de téléphone"),
     ("email", "adresse courriel"),
 )
 
