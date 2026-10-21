@@ -180,11 +180,17 @@ import final_email_branding  # noqa: E402,F401
 # actual production templates rather than an earlier, overwritten generator.
 import proposal_language  # noqa: E402
 proposal_language.install(ods_app, department_patch)
+import loi16_runtime  # noqa: E402
+loi16_runtime.install(ods_app, department_patch)
 _french_department_dispatch = department_dispatch
 
 
 def department_dispatch(update):
-    return proposal_language.dispatch(update, _french_department_dispatch, ods_app, department_patch)
+    def dispatch_selected(value):
+        if loi16_runtime.handle(value):
+            return
+        return _french_department_dispatch(value)
+    return proposal_language.dispatch(update, dispatch_selected, ods_app, department_patch)
 
 
 def _repair_pending_ods_list():
