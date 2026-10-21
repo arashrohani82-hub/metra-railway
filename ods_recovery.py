@@ -1,5 +1,6 @@
 """Recover archived ODS offers when local Railway history was lost after deploys."""
 import io
+import json
 import re
 from datetime import datetime
 
@@ -186,6 +187,17 @@ def _recover_from_xlsx(uid, query):
         "recovered_archive_file": filename,
         "recovered_archive_root": root,
     }
+    # New condominium offers retain their subtype across a lost local history.
+    # Read only the known metadata fields; contact/price remain the sheet values.
+    if '_loi16' in wb_formula.sheetnames:
+        try:
+            metadata = json.loads(wb_formula['_loi16']['A1'].value or '{}')
+            if metadata.get('proposal_kind') == 'loi16' and department == 'STR':
+                data.update({k: v for k, v in metadata.items() if k.startswith('loi16_') or k in
+                             ('proposal_kind', 'language', 'province', 'manager_name', 'project_title')})
+                data['service_lines'] = desc.splitlines()
+        except (TypeError, ValueError, AttributeError):
+            ods.logger.warning('Invalid Loi 16 metadata in recovered offer %s', ref)
     recovered_ref = ods.record_sent_offer(str(uid), data)
     ods.logger.warning(
         "ODS RECOVERED FROM ONEDRIVE: %s file=%s root=%s department=%s price=%s",
