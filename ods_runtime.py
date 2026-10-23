@@ -407,6 +407,31 @@ def onedrive_projects():
     return projects
 
 
+def _received_fraction(value):
+    """Financial completion in the project register means confirmed receipts."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", ".")
+            if not value.endswith("%"):
+                return None
+            fraction = float(value[:-1].strip()) / 100
+        else:
+            fraction = float(value)
+    except (TypeError, ValueError):
+        return None
+    return fraction if 0 <= fraction <= 1 else None
+
+
+def _project_payment_label(item):
+    fraction = item.get("received_fraction")
+    prefix = f"Reçu {fraction * 100:.1f}".rstrip("0").rstrip(".") + " %" if fraction is not None else "Reçu n/d"
+    name = str(item.get("name") or "").strip()
+    label = f"{prefix} | {name}"
+    return label if len(label) <= 62 else label[:61] + "…"
+
+
 def projects_awaiting_settlement(projects):
     """Use the live project register, including manual settlement confirmations.
 
@@ -431,6 +456,7 @@ def projects_awaiting_settlement(projects):
         financial_col = headers.index("financial % complet")
         status_cols = [i for i, h in enumerate(headers) if h == "status"]
         excluded = set()
+        received = {}
         closed = {"paid", "settled", "soldé", "solde", "payé", "paye",
                   "cancelled", "canceled", "annulé", "annule", "close", "closed"}
         for row in rows:
@@ -439,9 +465,12 @@ def projects_awaiting_settlement(projects):
                 continue
             status = {str(row[i] or "").strip().casefold() for i in status_cols if i < len(row)}
             financial = row[financial_col] if financial_col < len(row) else None
-            if status & closed or (isinstance(financial, (int, float)) and financial >= 1):
-                excluded.add(match.group(0).upper())
-        return [item for item in projects
+            code = match.group(0).upper()
+            received[code] = _received_fraction(financial)
+            if status & closed or received[code] == 1:
+                excluded.add(code)
+        return [{**item, "received_fraction": received.get(str(item.get("name") or "")[:7].upper())}
+                for item in projects
                 if str(item.get("name") or "")[:7].upper() not in excluded]
     finally:
         workbook.close()
@@ -468,7 +497,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             "web_url": item.get("webUrl") or "",
         }
         rows.append([{
-            "text": folder[:62],
+            "text": _project_payment_label(item) if only_outstanding else folder[:62],
             "callback_data": f"od_invoice_project:{index}",
         }])
 
@@ -478,7 +507,8 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     legacy.save_user_data()
     text = ("🧾 Projets non soldés\n\n"
             "Suivi des projets mis à jour depuis List.xlsx.\n"
-            "Les projets soldés ou annulés sont masqués."
+            "Les projets soldés ou annulés sont masqués.\n"
+            "Reçu = part du contrat encaissée ; n/d = réception non renseignée."
             if only_outstanding else "🧾 Nouvelle facture — tous les projets")
     if only_outstanding:
         rows.append([{"text": "🧾 Nouvelle facture / tous les projets",

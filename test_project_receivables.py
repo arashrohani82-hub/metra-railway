@@ -48,7 +48,7 @@ def test_blank_financial_status_is_retained_and_paid_is_explicit():
          patch.object(app,"graph_access_token",return_value="token"), \
          patch.object(app,"download_onedrive_path",return_value=register([
              ("P26-023",None,None,None),("P26-032",None,0,"Paid")])):
-        assert ods.projects_awaiting_settlement(projects)==[projects[0],projects[2]]
+        assert [p["name"] for p in ods.projects_awaiting_settlement(projects)]==[projects[0]["name"],projects[2]["name"]]
 
 
 def test_filter_before_limit_and_clear_stale_choices_on_empty_list():
@@ -78,3 +78,24 @@ def test_read_failure_does_not_claim_everything_is_paid():
         ods.show_onedrive_projects_for_invoice(1, "user")
     assert "Impossible" in tg.call_args.args[1]
     assert "Aucun projet" not in tg.call_args.args[1]
+
+
+def test_receipt_percentage_preserves_zero_and_distinguishes_unknown():
+    projects=[{"name":f"P26-{i:03d}-ABC-Long-description-of-the-project"} for i in range(40,44)]
+    with patch.object(app,"microsoft_email_config",return_value={"EMAIL_SENDER":"owner"}), \
+         patch.object(app,"graph_access_token",return_value="token"), \
+         patch.object(app,"download_onedrive_path",return_value=register([
+             ("P26-040",None,0,None),("P26-041",None,0.25,None),
+             ("P26-042",None,None,None),("P26-043",None,"37,5%",None)])):
+        result=ods.projects_awaiting_settlement(projects)
+    assert [p["received_fraction"] for p in result]==[0,0.25,None,0.375]
+    assert ods._project_payment_label(result[0]).startswith("Reçu 0 % | P26-040")
+    assert ods._project_payment_label(result[1]).startswith("Reçu 25 % | P26-041")
+    assert ods._project_payment_label(result[2]).startswith("Reçu n/d | P26-042")
+    assert ods._project_payment_label(result[3]).startswith("Reçu 37.5 % | P26-043")
+    assert all(len(ods._project_payment_label(p))<=62 for p in result)
+
+
+@pytest.mark.parametrize("value",[None,"",True,-0.1,1.5,"25",float("nan"),float("inf")])
+def test_invalid_percentage_is_unknown(value):
+    assert ods._received_fraction(value) is None
