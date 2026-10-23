@@ -33,6 +33,8 @@ def show_billing_address(chat_id, uid):
 
 def handle_billing_address(update):
     """Intercept billing edits before department/offer text routing."""
+    if handle_purchase_order(update):
+        return True
     cb = update.get('callback_query') or {}
     msg = update.get('message') or {}
     cdata = cb.get('data') or ''
@@ -102,6 +104,71 @@ def handle_billing_address(update):
 
 def _billing_address_is_confirmed(data):
     return bool(data.get('billing_address_confirmed')) and data.get('billing_address_confirmed') == str(data.get('addr') or '').strip()
+
+
+def show_purchase_order(chat_id, uid, percentage=None, fixed_amount=None):
+    data = legacy.user_data[str(uid)]
+    data['invoice_po_preview'] = {'percentage': percentage, 'fixed_amount': fixed_amount}
+    data['waiting_invoice_po'] = True
+    data['invoice_po_confirmed'] = False
+    data['pending_invoice'] = None
+    legacy.save_user_data()
+    legacy.tg(chat_id,
+              '📝 Bon de commande (PO)\n\nEntrez le numéro à afficher sur cette facture, '
+              'ou choisissez « Sans bon de commande ».',
+              [[{'text': 'Sans bon de commande', 'callback_data': 'invoice_po_none'}],
+               [{'text': '❌ Annuler', 'callback_data': 'invoice_cancel'}]])
+
+
+def handle_purchase_order(update):
+    cb = update.get('callback_query') or {}
+    msg = update.get('message') or {}
+    actor = (cb.get('from') or msg.get('from') or {}).get('id')
+    uid = str(actor)
+    data = legacy.user_data.get(uid, {})
+    cdata = cb.get('data') or ''
+    text = str(msg.get('text') or '').strip()
+    # Navigation must never become a purchase order number.
+    if cdata in ('invoice_cancel', 'invoice_start') or text.startswith('/') or text in (
+            '❌ Annuler', '🧾 Facturation', '🧾 Facturer un projet') or (
+            msg and any(text == button.get('text') for row in
+                        legacy.main_menu().get('keyboard', []) for button in row
+                        if isinstance(button, dict))):
+        for key in ('waiting_invoice_po', 'invoice_po_confirmed', 'invoice_po_preview', 'purchase_order'):
+            data.pop(key, None)
+        legacy.save_user_data()
+        return False
+    if cdata not in ('invoice_po_none', 'invoice_po_edit') and not (data.get('waiting_invoice_po') and msg):
+        return False
+    chat_id = ((cb.get('message') or msg).get('chat') or {}).get('id')
+    if actor not in legacy.ALLOWED_USERS:
+        legacy.tg(chat_id, '⛔ Ce bot est privé.')
+        return True
+    if cb:
+        try:
+            legacy.req.post(f'https://api.telegram.org/bot{legacy.BOT_TOKEN}/answerCallbackQuery',
+                            json={'callback_query_id': cb.get('id')}, timeout=3)
+        except Exception:
+            pass
+    pending = data.get('invoice_po_preview')
+    if not data.get('project_folder') or not pending or not _billing_address_is_confirmed(data):
+        legacy.tg(chat_id, '⚠️ Rouvrez Facturation et confirmez l’adresse de facturation.')
+        return True
+    if cdata == 'invoice_po_edit':
+        show_purchase_order(chat_id, uid, **pending)
+        return True
+    if not data.get('waiting_invoice_po'):
+        return True  # Ignore stale skip buttons after a preview was generated.
+    value = '' if cdata == 'invoice_po_none' else text
+    if cdata != 'invoice_po_none' and (not value or len(value) > 100 or any(ord(c) < 32 for c in value)):
+        legacy.tg(chat_id, '❌ Entrez un numéro sur une seule ligne (100 caractères maximum).')
+        return True
+    data['purchase_order'] = value
+    data['invoice_po_confirmed'] = True
+    data.pop('waiting_invoice_po', None)
+    legacy.save_user_data()
+    show_invoice_preview_control(chat_id, uid, **pending)
+    return True
 
 
 def _project_token(data):
@@ -219,6 +286,8 @@ def show_invoice_options_control(chat_id, uid):
     data.pop('waiting_billing_address_input', None)
     data.pop('waiting_billing_address_confirmation', None)
     data['pending_invoice'] = None
+    for key in ('waiting_invoice_po', 'invoice_po_confirmed', 'invoice_po_preview', 'purchase_order'):
+        data.pop(key, None)
     legacy.save_user_data()
 
     try:
@@ -310,6 +379,10 @@ def show_invoice_preview_control(chat_id, uid, percentage=None, fixed_amount=Non
             show_billing_address(chat_id, uid)
             return
 
+        if not data.get('invoice_po_confirmed'):
+            show_purchase_order(chat_id, uid, percentage=percentage, fixed_amount=fixed_amount)
+            return
+
         # Generate the established PDF preview first.
         preview.show_invoice_preview_pdf(
             chat_id,
@@ -338,8 +411,8 @@ _original_issue_invoice = legacy.do_issue_invoice
 
 def issue_invoice_with_confirmed_address(chat_id, uid):
     data = legacy.user_data.get(str(uid), {})
-    if not _billing_address_is_confirmed(data) or not data.get('pending_invoice'):
-        legacy.tg(chat_id, '⛔ Confirmez l’adresse de facturation et vérifiez le nouvel aperçu PDF avant l’envoi.')
+    if not _billing_address_is_confirmed(data) or not data.get('pending_invoice') or not data.get('invoice_po_confirmed'):
+        legacy.tg(chat_id, '⛔ Confirmez l’adresse et le bon de commande (ou choisissez sans bon de commande), puis vérifiez le nouvel aperçu PDF avant l’envoi.')
         return
     return _original_issue_invoice(chat_id, uid)
 
@@ -353,3 +426,4 @@ legacy.show_invoice_options = show_invoice_options_control
 legacy.show_invoice_preview = show_invoice_preview_control
 
 logger.info('CUMULATIVE PROJECT INVOICING CONTROL ACTIVE')
+
