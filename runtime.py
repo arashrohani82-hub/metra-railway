@@ -35,7 +35,6 @@ import app as ods_app
 import google_review_runtime  # noqa: E402
 google_review_runtime.install_menu()
 import project_capacity_runtime  # noqa: E402
-project_capacity_runtime.install_menu()
 
 _menu_refresh_lock = threading.Lock()
 _menu_refreshed_chats = set()
