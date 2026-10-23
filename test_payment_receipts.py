@@ -93,6 +93,26 @@ def test_invoice_picker_excludes_fully_paid_invoice(tmp_path):
         assert tg.call_args.args[2] == [[{'text':'❌ Annuler','callback_data':'pay_cancel'}]]
 
 
+def test_invoice_picker_accepts_legacy_folder_with_empty_discipline(tmp_path):
+    folder = 'P26-034-_STR_XWW_Évaluation_structurale_des_fissures_2787_2791_'
+    uid = str(USER)
+    app.user_data[uid] = {'project_folder': folder}
+    matching = {'name': 'FAC26-060_P26-034-_STR_XWW.pdf'}
+    unrelated = {'name': 'FAC26-061_P26-035-ABC.pdf'}
+    with patch.object(receipts, 'SELECTIONS', str(tmp_path/'selections.json')), \
+         patch.object(app, 'graph_access_token', return_value='test'), \
+         patch.object(app, 'list_onedrive_children', return_value=[matching, unrelated]), \
+         patch.object(app, 'download_onedrive_path', return_value=b'pdf') as download, \
+         patch.object(control, '_pdf_text', return_value='Projet : P26-034-_STR_XWW'), \
+         patch.object(receipts, 'invoice_details', return_value={**invoice(), 'filename':matching['name']}), \
+         patch.object(receipts, 'invoice_records', return_value=[]), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg:
+        receipts.show_invoices(USER, uid)
+        assert len(app.user_data[uid]['payment_choices']) == 1
+        assert download.call_count == 1
+        assert tg.call_args.args[2][0][0]['callback_data'].startswith('pay_pick:')
+
+
 def invoice():
     return {'filename':'FAC26-057_P26-040-GNX.pdf','number':'057','total':'517.39',
             'client':'Gregory Shaw','client_lines':['Gregory Shaw','100 Billing Avenue','client@example.com'],
