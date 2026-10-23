@@ -16,7 +16,7 @@ from reportlab.lib import colors
 from openpyxl.styles import Alignment, Font
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
@@ -293,23 +293,49 @@ def document_sections(data):
     ]
 
 
+
+def draw_proposal_branding(canvas, doc, data):
+    """Official Metra letterhead on every Loi 16 page; no global renderer changes."""
+    en = english(data)
+    width, height = doc.pagesize
+    canvas.saveState()
+    canvas.setFillColor(colors.black)
+    canvas.drawImage(_ODS.LOGOS['metra'], 1.8*cm, height-2.85*cm,
+                     width=3.6*cm, height=1.35*cm,
+                     preserveAspectRatio=True, mask='auto')
+    canvas.setFont('Loi16Bold', 10)
+    canvas.drawCentredString(width/2, height-1.7*cm,
+                            'Structural Engineering' if en else 'Génie des structures')
+    canvas.setFont('Loi16Regular', 9)
+    for offset, text in ((2.2, '1610-1280 Rue Saint-Jacques'),
+                         (2.7, 'Montreal, Quebec, Canada H3C 0G1' if en else
+                          'Montréal, Québec, Canada H3C 0G1'),
+                         (3.2, 'info@metraconsultation.ca | (438) 867-4131')):
+        canvas.drawCentredString(width/2, height-offset*cm, text)
+    canvas.setLineWidth(.7)
+    canvas.line(1.8*cm, height-3.6*cm, width-1.8*cm, height-3.6*cm)
+    canvas.line(1.8*cm, 2*cm, width-1.8*cm, 2*cm)
+    canvas.setFont('Loi16Regular', 8)
+    canvas.drawString(1.8*cm, 1.5*cm,
+                      'Project province: Quebec' if en else 'Province du projet : Québec')
+    canvas.drawString(1.8*cm, cm, 'Metra Consultation Inc. | metraconsultation.ca')
+    canvas.drawRightString(width-1.8*cm, cm, f'{doc.page} | Page')
+    canvas.restoreState()
+
+
 def generate_pdf(data):
     if not is_loi16(data):
         return _OLD_PDF(data)
     en = english(data)
     out = io.BytesIO()
     doc = SimpleDocTemplate(out, pagesize=_ODS.letter, leftMargin=1.8*cm,
-                            rightMargin=1.8*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+                            rightMargin=1.8*cm, topMargin=4*cm, bottomMargin=2.3*cm)
     normal = ParagraphStyle('loi16', fontName='Loi16Regular', fontSize=9.5, leading=13.5, spaceAfter=5)
     heading = ParagraphStyle('loi16_heading', parent=normal, fontName='Loi16Bold', spaceBefore=6,
                              textColor=colors.HexColor('#12324a'))
-    title = ParagraphStyle('loi16_title', parent=heading, fontSize=14, leading=18)
     def para(value, style=normal):
         return Paragraph(html.escape(str(value)).replace('\n', '<br/>'), style)
-    story = [para(_ODS.DISPLAY_BRAND, title),
-             para('info@metraconsultation.ca | (438) 867-4131'),
-             para(str(data.get('odsNum') or 'ODS') + ' | ' + str(data.get('date') or '')),
-             HRFlowable(width='100%', thickness=2, color=colors.HexColor('#f5a623')),
+    story = [para(str(data.get('odsNum') or 'ODS') + ' | ' + str(data.get('date') or '')),
              Spacer(1, 8), para(data.get('name') or ('Syndicate' if en else 'Syndicat de copropriété'))]
     if data.get('manager_name') and data['manager_name'] != data.get('name'):
         story.append(para(('Attention: ' if en else 'À l’attention de : ') + data['manager_name']))
@@ -323,7 +349,8 @@ def generate_pdf(data):
     story += [Spacer(1, 10), para('Arash Rohani, ing., P.Eng. | Metra Consultation Inc.'),
               para('Authorized representative: __________________  Signature: ______________  Date: __________' if en else
                    'Représentant autorisé : __________________  Signature : ______________  Date : __________')]
-    doc.build(story)
+    branding = lambda canvas, page: draw_proposal_branding(canvas, page, data)
+    doc.build(story, onFirstPage=branding, onLaterPages=branding)
     out.seek(0)
     return out
 
@@ -425,3 +452,4 @@ def install(ods, departments):
         return result
     ods._do_create_project = create
     ods.logger.warning('LOI16 ACTIVE: Structure subtype, short intake and compact PDF/Excel')
+
