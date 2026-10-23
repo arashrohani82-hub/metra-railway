@@ -23,9 +23,12 @@ def test_same_project_opens_from_either_column_and_total_uses_received_fraction(
         {'name': 'P26-042-FIG-Fenêtres', 'contract': 800, 'received_fraction': .9}])
     assert '1 430,00 $' in text
     assert '1 644,14 $' in text
-    assert buttons[0][0]['text'].startswith('Reçu 25 % | P26-049')
-    assert buttons[0][1]['text'] == '1 350,00 $ HT'
-    assert buttons[1][1]['text'] == '80,00 $ HT'
+    assert '<b>' not in text and '</b>' not in text
+    assert 'Colonne gauche' not in text
+    assert len(text) < 250
+    assert buttons[0][0]['text'].startswith('P26-049 | 25% | TMN')
+    assert buttons[0][1]['text'] == '1 350 $'
+    assert buttons[1][1]['text'] == '80 $'
     assert buttons[0][0]['callback_data'] == buttons[0][1]['callback_data']
     assert app.user_data['list-balance']['invoice_project_choices']['1']['folder'] == 'P26-049-TMN-Inspection'
 
