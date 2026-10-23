@@ -16,6 +16,7 @@ from payment_receipts import invoice_details, money, parse_amount, payment_balan
 legacy = control.legacy
 LOCK = threading.RLock()
 LEDGER = os.path.join(legacy.DATA_DIR, 'payment_receipts.json')
+SELECTIONS = os.path.join(legacy.DATA_DIR, 'payment_invoice_selections.json')
 METHODS = ('Interac', 'Virement bancaire', 'Chèque encaissé', 'Carte', 'Espèces', 'Autre')
 
 
@@ -51,6 +52,36 @@ def save_session(uid):
     legacy.save_user_data()
 
 
+def remember_invoices(uid, project_folder, choices):
+    """Keep displayed invoice identities independent of mutable ODS sessions."""
+    with LOCK:
+        records = {}
+        if os.path.exists(SELECTIONS):
+            with open(SELECTIONS, encoding='utf-8') as f:
+                records = json.load(f)
+        user = records.setdefault(str(uid), {})
+        for key, invoice in choices.items():
+            user[key] = {'invoice': invoice, 'project_folder': project_folder}
+        temporary = SELECTIONS + '.tmp'
+        with open(temporary, 'w', encoding='utf-8') as f:
+            json.dump(records, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, SELECTIONS)
+
+
+def selected_invoice(uid, key):
+    with LOCK:
+        if os.path.exists(SELECTIONS):
+            with open(SELECTIONS, encoding='utf-8') as f:
+                selection = json.load(f).get(str(uid), {}).get(key)
+            if selection:
+                return selection
+        # Legacy numeric indexes cannot identify an invoice after another list
+        # has replaced the session. Expire them rather than pick the wrong PDF.
+    return None
+
+
 def show_invoices(chat_id, uid):
     data = legacy.user_data.get(uid, {})
     if not data.get('project_folder'):
@@ -78,8 +109,11 @@ def show_invoices(chat_id, uid):
         details = invoice_details(text, filename)
         details['path'] = path
         _, balance = payment_balance(details, invoice_records(details))
+        if balance <= 0:
+            continue
         details['remaining'] = str(balance)
-        choices[str(len(choices)+1)] = details
+        choices[uuid.uuid4().hex[:16]] = details
+    remember_invoices(uid, data['project_folder'], choices)
     data['payment_choices'] = choices
     data.pop('payment_pending', None)
     data.pop('payment_waiting', None)
@@ -89,17 +123,17 @@ def show_invoices(chat_id, uid):
     buttons.append([{'text':'❌ Annuler','callback_data':'pay_cancel'}])
     legacy.tg(chat_id, '💳 Réception d’un paiement\n\nChoisissez la facture. '
               'Le solde tient compte des paiements enregistrés dans ce bot.' if choices else
-              'Aucune facture PDF trouvée pour ce projet.', buttons)
+              'Aucune facture avec un solde à recevoir pour ce projet.', buttons)
 
 
-def show_amount(chat_id, uid, invoice):
+def show_amount(chat_id, uid, invoice, project_folder=None):
     _, remaining = payment_balance(invoice, invoice_records(invoice))
     if remaining <= 0:
         legacy.tg(chat_id, '✅ Cette facture est déjà acquittée selon le registre du bot.')
         return
-    data = legacy.user_data[uid]
+    data = legacy.user_data.setdefault(uid, {})
     data['payment_pending'] = {'key': uuid.uuid4().hex, 'invoice': invoice,
-                               'project_folder':data['project_folder'], 'date':today().isoformat()}
+                               'project_folder':project_folder or data['project_folder'], 'date':today().isoformat()}
     save_session(uid)
     legacy.tg(chat_id, f"Facture : {invoice['filename']}\nClient : {invoice['client']}\n"
               f'Solde enregistré : {remaining:.2f} $\n\nQuel montant avez-vous réellement reçu (taxes incluses)?', [
@@ -252,9 +286,11 @@ def handle_update(update):
             save_session(uid)
             legacy.tg(chat_id,'Réception annulée. Aucun nouveau paiement enregistré.')
         elif action.startswith('pay_pick:'):
-            invoice=(data.get('payment_choices') or {}).get(action.split(':',1)[1])
-            if not invoice: raise ValueError('Facture introuvable. Recommencez.')
-            show_amount(chat_id,uid,invoice)
+            selection=selected_invoice(uid,action.split(':',1)[1])
+            if not selection or not selection.get('project_folder'):
+                legacy.tg(chat_id,'⚠️ Cette ancienne liste a expiré. Sélectionnez le projet dans Facturation puis Réception d’un paiement. Aucun paiement enregistré.')
+                return True
+            show_amount(chat_id,uid,selection['invoice'],selection['project_folder'])
         elif action.startswith('pay_confirm:'):
             issue_receipt(chat_id,uid,action.split(':',1)[1])
         elif action.startswith('pay_email:'):

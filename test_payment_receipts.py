@@ -20,6 +20,48 @@ from invoice_engine import generate_invoice_pdf
 USER=987661234
 
 
+def test_invoice_selection_survives_session_replacement_and_remains_user_scoped(tmp_path):
+    uid = str(USER)
+    with patch.object(receipts, 'SELECTIONS', str(tmp_path/'selections.json')), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg'), \
+         patch.object(receipts, 'invoice_records', return_value=[]):
+        receipts.remember_invoices(uid, 'P26-042-FIG', {'stable': invoice()})
+        app.user_data[uid] = {'project_folder': 'P26-049-TMN'}
+        selection = receipts.selected_invoice(uid, 'stable')
+        assert receipts.selected_invoice('other-user', 'stable') is None
+        receipts.show_amount(USER, uid, selection['invoice'], selection['project_folder'])
+        assert app.user_data[uid]['payment_pending']['project_folder'] == 'P26-042-FIG'
+        # A worker restart can reload the selection without the original session.
+        app.user_data.pop(uid)
+        assert receipts.selected_invoice(uid, 'stable')['invoice'] == invoice()
+
+
+def test_expired_invoice_button_never_records_payment(tmp_path):
+    app.user_data[str(USER)] = {}
+    with patch.object(receipts, 'SELECTIONS', str(tmp_path/'selections.json')), \
+         patch.object(app, 'ALLOWED_USERS', {USER}), patch.object(app, 'tg') as tg, \
+         patch.object(app.req, 'post'), patch.object(receipts, 'issue_receipt') as issue:
+        receipts.handle_update({'callback_query': {'id':'test', 'data':'pay_pick:missing',
+            'from':{'id':USER}, 'message':{'chat':{'id':USER}}}})
+        issue.assert_not_called()
+        assert 'ancienne liste a expiré' in tg.call_args.args[1]
+
+
+def test_invoice_picker_excludes_fully_paid_invoice(tmp_path):
+    app.user_data[str(USER)] = {'project_folder':'P26-040-GNX'}
+    with patch.object(receipts, 'SELECTIONS', str(tmp_path/'selections.json')), \
+         patch.object(app, 'graph_access_token', return_value='test'), \
+         patch.object(app, 'list_onedrive_children', return_value=[{'name':invoice()['filename']}]), \
+         patch.object(app, 'download_onedrive_path', return_value=b'pdf'), \
+         patch.object(control, '_pdf_text', return_value='P26-040-GNX'), \
+         patch.object(receipts, 'invoice_details', return_value=invoice()), \
+         patch.object(receipts, 'invoice_records', return_value=[{'amount':'517.39'}]), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg:
+        receipts.show_invoices(USER, str(USER))
+        assert not app.user_data[str(USER)]['payment_choices']
+        assert tg.call_args.args[2] == [[{'text':'❌ Annuler','callback_data':'pay_cancel'}]]
+
+
 def invoice():
     return {'filename':'FAC26-057_P26-040-GNX.pdf','number':'057','total':'517.39',
             'client':'Gregory Shaw','client_lines':['Gregory Shaw','100 Billing Avenue','client@example.com'],
