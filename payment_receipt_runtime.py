@@ -139,7 +139,9 @@ def show_invoices(chat_id, uid):
         legacy.tg(chat_id, '⚠️ Sélectionnez le projet dans Facturation.')
         return
     token = legacy.graph_access_token()
-    project_match = re.search(r'P\d{2}-\d{3}-[A-Z0-9]{2,5}', data['project_folder'], re.I)
+    # Some legacy folders contain an empty discipline segment, e.g.
+    # P26-034-_STR_XWW. The numeric project reference is still valid.
+    project_match = re.search(r'P\d{2}-\d{3}(?!\d)(?:-[A-Z0-9]{2,5})?', data['project_folder'], re.I)
     if not project_match:
         raise ValueError('Code du projet introuvable')
     project = project_match.group(0).upper()
@@ -155,7 +157,7 @@ def show_invoices(chat_id, uid):
         path = item.get('_receipt_path') or f'{legacy.INVOICE_FOLDER}/{filename}'
         content = legacy.download_onedrive_path(token, legacy.INVOICE_DRIVE_OWNER, path)
         text = control._pdf_text(content)
-        if project not in re.sub(r'\s+', '', text).upper():
+        if not re.search(re.escape(project) + r'(?![A-Z0-9])', re.sub(r'\s+', '', text), re.I):
             continue
         details = invoice_details(text, filename)
         details['path'] = path
