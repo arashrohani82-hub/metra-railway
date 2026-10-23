@@ -232,6 +232,7 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
             "✅ Vérifiez le PDF ci-dessus.\n\n"
             f"Projet : {data.get('project_folder')}\n"
             f"Client : {data.get('name') or 'À compléter'}\n"
+            f"Bon de commande : {data.get('purchase_order') or 'Sans bon de commande'}\n"
             f"Méthode : {quantity}\n"
             f"Sous-total : {values['subtotal']:,.2f} $\n"
             f"TPS : {values['gst']:,.2f} $\n"
@@ -241,6 +242,7 @@ def show_invoice_preview_pdf(chat_id, uid, percentage=None, fixed_amount=None):
             "Si tout est correct, confirmez l'envoi. Le numéro sera revérifié au moment de l'émission.",
             [
                 [{'text': '✅ Confirmer et envoyer', 'callback_data': 'invoice_confirm'}],
+                [{'text': '✏️ Bon de commande', 'callback_data': 'invoice_po_edit'}],
                 [{'text': '✏️ Modifier', 'callback_data': 'invoice_start'}],
                 [{'text': '❌ Annuler', 'callback_data': 'invoice_cancel'}],
             ],
@@ -255,3 +257,4 @@ logger.info(
     'INVOICE PDF PREVIEW FLOW ACTIVE — ARCHIVE=%s — STANDARD PAYMENT EMAIL ACTIVE',
     legacy.INVOICE_FOLDER,
 )
+

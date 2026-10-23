@@ -243,8 +243,10 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
         normal,
     )
     project_address = escape(str(data.get("project_address") or data.get("addr") or data.get("address") or "À confirmer")).replace("\n", "<br/>")
+    purchase_order = str(data.get("purchase_order") or "").strip()
+    po_line = f"<br/><b>Bon de commande :</b> {escape(purchase_order)}" if purchase_order else ""
     project_box = Paragraph(
-        f"<b>Projet :</b><br/>{escape(_project_reference(data))}<br/>{project_address}",
+        f"<b>Projet :</b><br/>{escape(_project_reference(data))}<br/>{project_address}{po_line}",
         normal,
     )
     story.append(Table([[sold, project_box]], colWidths=[9.2 * cm, 8.7 * cm]))
@@ -336,3 +338,4 @@ def generate_invoice_pdf(data, invoice_number, percentage=None, fixed_amount=Non
 
     doc.build(story)
     return output.getvalue(), values, due_date
+
