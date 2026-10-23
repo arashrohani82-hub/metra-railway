@@ -503,7 +503,10 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     try:
         projects = onedrive_projects()
         if only_outstanding:
-            projects = projects_awaiting_settlement(projects)
+            projects = projects_awaiting_settlement(projects, include_financials=True)
+            from project_capacity_runtime import capacity, amount
+            report = capacity(projects)
+            balances = {row['code']: row['remaining'] for row in report['projects']}
     except Exception as exc:
         logger.exception("Unable to list OneDrive projects for invoicing")
         legacy.tg(chat_id, f"❌ Impossible de lire les projets OneDrive : {exc}")
@@ -518,20 +521,34 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             "folder": folder,
             "web_url": item.get("webUrl") or "",
         }
-        rows.append([{
+        project_row = [{
             "text": _project_payment_label(item) if only_outstanding else folder[:62],
             "callback_data": f"od_invoice_project:{index}",
-        }])
+        }]
+        if only_outstanding:
+            balance = balances.get(folder[:7].upper())
+            label = amount(balance) + ' HT' if balance is not None else 'Solde n/d'
+            project_row.append({'text': label, 'callback_data': f'od_invoice_project:{index}'})
+        rows.append(project_row)
 
     session["invoice_project_choices"] = choices
     session.pop("selected_onedrive_project", None)
     legacy.user_data[uid] = session
     legacy.save_user_data()
-    text = ("🧾 Projets non soldés\n\n"
-            "Suivi des projets mis à jour depuis List.xlsx.\n"
-            "Les projets soldés ou annulés sont masqués.\n"
-            "Reçu = part du contrat encaissée ; n/d = réception non renseignée."
-            if only_outstanding else "🧾 Nouvelle facture — tous les projets")
+    if only_outstanding:
+        text = ("🧾 Projets non soldés\n\n"
+                f"💰 Reste à encaisser HT : <b>{amount(report['total'])}</b>\n"
+                f"Avec TPS/TVQ estimées : <b>{amount(report['tax_included'])}</b>\n"
+                f"📁 {len(report['projects'])} projet(s) avec solde calculable.\n\n"
+                "Colonne gauche : reçu / projet.\nColonne droite : solde HT.\n"
+                "Solde = valeur du contrat moins les encaissements enregistrés.\n"
+                "À percevoir selon la livraison et les échéances du contrat.\n"
+                "TPS 5 % + TVQ 9,975 %. Projets soldés ou annulés masqués.")
+        if report['unknown']:
+            text += (f"\n⚠️ {len(report['unknown'])} projet(s) hors total : "
+                     "contrat ou réception non renseignés (n/d).")
+    else:
+        text = "🧾 Nouvelle facture — tous les projets"
     if only_outstanding:
         rows.append([{"text": "🧾 Nouvelle facture / tous les projets",
                       "callback_data": "od_invoice_project:all"}])

@@ -74,7 +74,7 @@ def test_filter_before_limit_and_clear_stale_choices_on_empty_list():
          patch.object(ods, "projects_awaiting_settlement", return_value=[]) as filter_projects, \
          patch.object(app, "save_user_data"), patch.object(app, "tg") as tg:
         ods.show_onedrive_projects_for_invoice(1, uid)
-    filter_projects.assert_called_once_with(projects)
+    filter_projects.assert_called_once_with(projects, include_financials=True)
     assert app.user_data[uid]["invoice_project_choices"] == {}
     assert "Aucun projet non soldé" in tg.call_args.args[1]
     assert tg.call_args.args[2][0][0]["callback_data"] == "od_invoice_project:all"
