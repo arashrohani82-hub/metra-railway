@@ -432,7 +432,7 @@ def _project_payment_label(item):
     return label if len(label) <= 62 else label[:61] + "…"
 
 
-def projects_awaiting_settlement(projects):
+def projects_awaiting_settlement(projects, include_financials=False):
     """Use the live project register, including manual settlement confirmations.
 
     Explicit closures remain authoritative. Confirmed receipts can advance the
@@ -458,7 +458,9 @@ def projects_awaiting_settlement(projects):
         excluded = set()
         received = {}
         contracts = {}
+        physical = {}
         price_col = headers.index('price(cad)') if 'price(cad)' in headers else None
+        physical_col = headers.index('physical % complet') if 'physical % complet' in headers else None
         closed = {"paid", "settled", "soldé", "solde", "payé", "paye",
                   "cancelled", "canceled", "annulé", "annule", "close", "closed"}
         for row in rows:
@@ -469,6 +471,8 @@ def projects_awaiting_settlement(projects):
             financial = row[financial_col] if financial_col < len(row) else None
             code = match.group(0).upper()
             received[code] = _received_fraction(financial)
+            if physical_col is not None and physical_col < len(row):
+                physical[code] = _received_fraction(row[physical_col])
             if price_col is not None and price_col < len(row) and row[price_col]:
                 contracts[code] = row[price_col]
             if status & closed or received[code] == 1:
@@ -482,9 +486,14 @@ def projects_awaiting_settlement(projects):
                     excluded.add(code)
         except Exception:
             logger.exception('Receipt percentages unavailable; retaining project register values')
-        return [{**item, "received_fraction": received.get(str(item.get("name") or "")[:7].upper())}
+        result = [{**item, "received_fraction": received.get(str(item.get("name") or "")[:7].upper())}
                 for item in projects
                 if str(item.get("name") or "")[:7].upper() not in excluded]
+        if include_financials:
+            for item in result:
+                code = str(item.get('name') or '')[:7].upper()
+                item.update(contract=contracts.get(code), physical_fraction=physical.get(code))
+        return result
     finally:
         workbook.close()
 

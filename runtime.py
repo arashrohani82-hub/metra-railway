@@ -34,6 +34,8 @@ import email_branding_patch  # noqa: E402,F401
 import app as ods_app
 import google_review_runtime  # noqa: E402
 google_review_runtime.install_menu()
+import project_capacity_runtime  # noqa: E402
+project_capacity_runtime.install_menu()
 
 _menu_refresh_lock = threading.Lock()
 _menu_refreshed_chats = set()
@@ -80,6 +82,8 @@ def department_dispatch(update):
         # Bypass older handlers that can consume /menu as free-form ODS text.
         ods_app.tg(chat_id, '👋 Metra Consultation\n\nChoisissez une opération :',
                    reply_markup=ods_app.main_menu())
+        return
+    if project_capacity_runtime.handle(update or {}):
         return
     if google_review_runtime.handle(update or {}):
         return
