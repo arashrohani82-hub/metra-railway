@@ -415,7 +415,7 @@ def projects_with_receivables(projects):
     """
     import invoice_control_runtime as control
     import payment_receipt_runtime as receipts
-    from payment_receipts import invoice_details, money, payment_balance
+    from payment_receipts import invoice_balance_details, money, payment_balance
 
     pattern = r"P\d{2}-\d{3}-[A-Z0-9]{2,5}(?![A-Z0-9])"
     codes = {}
@@ -441,7 +441,7 @@ def projects_with_receivables(projects):
             continue
         if len(matched) != 1:
             raise ValueError(f"Projet ambigu dans la facture {filename}")
-        invoice = invoice_details(text, filename)
+        invoice = invoice_balance_details(text, filename)
         _, remaining = payment_balance(invoice, receipts.invoice_records(invoice, records))
         # A credit on one invoice must not conceal another unpaid invoice.
         balances[next(iter(matched))] += max(remaining, money(0))

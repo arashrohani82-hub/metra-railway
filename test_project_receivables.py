@@ -61,3 +61,20 @@ def test_read_failure_does_not_claim_everything_is_paid():
         ods.show_onedrive_projects_for_invoice(1, "user")
     assert "Impossible" in tg.call_args.args[1]
     assert "Aucun solde" not in tg.call_args.args[1]
+
+
+def test_balance_listing_does_not_require_invoice_client_block():
+    from payment_receipts import invoice_balance_details, invoice_details
+    text = "Projet : P26-023-4HE\nMontant total : 114.98"
+    assert invoice_balance_details(text, "FAC-test.pdf") == {
+        "filename": "FAC-test.pdf", "total": "114.98"}
+    # Receipt issuance still requires a verified client block.
+    with pytest.raises(ValueError, match="Client de la facture"):
+        invoice_details(text, "FAC-test.pdf")
+    with patch.object(app, "graph_access_token", return_value="token"), \
+         patch.object(app, "list_onedrive_children", return_value=[{"name":"FAC-test.pdf"}]), \
+         patch.object(app, "download_onedrive_path", return_value=text), \
+         patch.object(control, "_pdf_text", side_effect=lambda value: value), \
+         patch.object(receipts, "ledger", return_value={}):
+        result = ods.projects_with_receivables([{"name":"P26-023-4HE-Mur"}])
+    assert str(result[0]["receivable"]) == "114.98"

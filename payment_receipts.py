@@ -30,13 +30,20 @@ def parse_amount(text):
     return money(raw)
 
 
-def invoice_details(text, filename):
+def invoice_balance_details(text, filename):
+    """Read the identity and total needed for balances, without client fields."""
     match = re.search(r'Montant total\s*:\s*\$?\s*([\d ,]+[.,]\d{2})', text, re.I)
     if not match:
         raise ValueError('Total de facture introuvable : ' + filename)
     total = parse_amount(match.group(1))
     if total <= 0:
         raise ValueError('Total de facture invalide')
+    return {'filename': filename, 'total': str(total)}
+
+
+def invoice_details(text, filename):
+    details = invoice_balance_details(text, filename)
+    total = money(details['total'])
     client = re.search(r'Facturé à\s*:\s*\n(.*?)\nProjet\s*:', text, re.S | re.I)
     lines = [s.strip() for s in client.group(1).splitlines() if s.strip()] if client else []
     if not lines:
