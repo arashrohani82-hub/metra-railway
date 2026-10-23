@@ -314,12 +314,17 @@ def draw_proposal_branding(canvas, doc, data):
         canvas.drawCentredString(width/2, height-offset*cm, text)
     canvas.setLineWidth(.7)
     canvas.line(1.8*cm, height-3.6*cm, width-1.8*cm, height-3.6*cm)
-    canvas.line(1.8*cm, 2*cm, width-1.8*cm, 2*cm)
+    canvas.line(1.8*cm, 2.45*cm, width-1.8*cm, 2.45*cm)
     canvas.setFont('Loi16Regular', 8)
-    canvas.drawString(1.8*cm, 1.5*cm,
+    canvas.drawString(1.8*cm, 2.57*cm,
                       'Project province: Quebec' if en else 'Province du projet : Québec')
-    canvas.drawString(1.8*cm, cm, 'Metra Consultation Inc. | metraconsultation.ca')
-    canvas.drawRightString(width-1.8*cm, cm, f'{doc.page} | Page')
+    for key, x, logo_width in (('ing', 2.2, 2.5), ('peo', 8.5, 3.0), ('rgcq', 15.2, 2.4)):
+        canvas.drawImage(_ODS.LOGOS[key], x*cm, .5*cm,
+                         width=logo_width*cm, height=1.5*cm,
+                         preserveAspectRatio=True, mask='auto')
+    canvas.setFont('Loi16Regular', 7)
+    canvas.drawString(1.8*cm, .15*cm, 'Metra Consultation Inc. | metraconsultation.ca')
+    canvas.drawRightString(width-1.8*cm, .15*cm, f'{doc.page} | Page')
     canvas.restoreState()
 
 
@@ -329,7 +334,7 @@ def generate_pdf(data):
     en = english(data)
     out = io.BytesIO()
     doc = SimpleDocTemplate(out, pagesize=_ODS.letter, leftMargin=1.8*cm,
-                            rightMargin=1.8*cm, topMargin=4*cm, bottomMargin=2.3*cm)
+                            rightMargin=1.8*cm, topMargin=4*cm, bottomMargin=3*cm)
     normal = ParagraphStyle('loi16', fontName='Loi16Regular', fontSize=9.5, leading=13.5, spaceAfter=5)
     heading = ParagraphStyle('loi16_heading', parent=normal, fontName='Loi16Bold', spaceBefore=6,
                              textColor=colors.HexColor('#12324a'))
