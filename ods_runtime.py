@@ -424,11 +424,15 @@ def _received_fraction(value):
     return fraction if 0 <= fraction <= 1 else None
 
 
-def _project_payment_label(item):
+def _project_payment_label(item, compact=False):
     fraction = item.get("received_fraction")
     prefix = f"Reçu {fraction * 100:.1f}".rstrip("0").rstrip(".") + " %" if fraction is not None else "Reçu n/d"
     name = str(item.get("name") or "").strip()
-    label = f"{prefix} | {name}"
+    if compact:
+        percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "n/d"
+        label = f"{name[:7]} | {percent} | {name[7:].lstrip('-_')}"
+    else:
+        label = f"{prefix} | {name}"
     return label if len(label) <= 62 else label[:61] + "…"
 
 
@@ -522,12 +526,12 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             "web_url": item.get("webUrl") or "",
         }
         project_row = [{
-            "text": _project_payment_label(item) if only_outstanding else folder[:62],
+            "text": _project_payment_label(item, compact=True) if only_outstanding else folder[:62],
             "callback_data": f"od_invoice_project:{index}",
         }]
         if only_outstanding:
             balance = balances.get(folder[:7].upper())
-            label = amount(balance) + ' HT' if balance is not None else 'Solde n/d'
+            label = amount(balance).replace(',00 $', ' $') if balance is not None else 'Solde n/d'
             project_row.append({'text': label, 'callback_data': f'od_invoice_project:{index}'})
         rows.append(project_row)
 
@@ -536,14 +540,12 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     legacy.user_data[uid] = session
     legacy.save_user_data()
     if only_outstanding:
-        text = ("🧾 Projets non soldés\n\n"
-                f"💰 Reste à encaisser HT : <b>{amount(report['total'])}</b>\n"
-                f"Avec TPS/TVQ estimées : <b>{amount(report['tax_included'])}</b>\n"
-                f"📁 {len(report['projects'])} projet(s) avec solde calculable.\n\n"
-                "Colonne gauche : reçu / projet.\nColonne droite : solde HT.\n"
-                "Solde = valeur du contrat moins les encaissements enregistrés.\n"
-                "À percevoir selon la livraison et les échéances du contrat.\n"
-                "TPS 5 % + TVQ 9,975 %. Projets soldés ou annulés masqués.")
+        text = ("🧾 Projets à encaisser\n\n"
+                f"💰 Reste à recevoir : {amount(report['total'])}\n"
+                f"💵 Avec taxes ≈ {amount(report['tax_included'])}\n"
+                f"📁 {len(report['projects'])} projet(s)\n\n"
+                "Les soldes ci-dessous sont avant taxes.\n"
+                "Touchez un projet pour l’ouvrir.")
         if report['unknown']:
             text += (f"\n⚠️ {len(report['unknown'])} projet(s) hors total : "
                      "contrat ou réception non renseignés (n/d).")
