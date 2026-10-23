@@ -53,7 +53,7 @@ def test_capacity_button_bypasses_active_invoice_text_input():
         runtime.department_dispatch({'message': {'from': {'id': user}, 'chat': {'id': user},
                                                'text': capacity.BUTTON}})
         submit.assert_called_once_with(capacity.show, user, str(user), 0)
-    assert any(c.get('text') == capacity.BUTTON for row in app.main_menu()['keyboard'] for c in row)
+    assert not any(c.get('text') == capacity.BUTTON for row in app.main_menu()['keyboard'] for c in row)
 
 
 def test_private_financials_require_authorized_actor():
