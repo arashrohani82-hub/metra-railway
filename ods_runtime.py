@@ -563,6 +563,47 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     legacy.tg(chat_id, text, rows)
 
 
+def _registered_contract_price(folder):
+    """Read the accepted fee by exact project code from the live offer register."""
+    import math
+    match = re.match(r"^(P\d{2}-\d{3})(?:[-_]|$)", str(folder), re.I)
+    if not match:
+        return None
+    project_code = match.group(1).upper()
+    config = legacy.microsoft_email_config()
+    content = legacy.download_onedrive_path(
+        legacy.graph_access_token(), config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
+    workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    amounts = set()
+    try:
+        for sheet in workbook.worksheets:
+            rows = iter(sheet.iter_rows(values_only=True))
+            headers = [str(v or "").strip().casefold() for v in next(rows, ())]
+            if "project code" not in headers or "accepted price" not in headers:
+                continue
+            project_col = headers.index("project code")
+            price_col = headers.index("accepted price")
+            for row in rows:
+                value = row[project_col] if project_col < len(row) else None
+                code = re.match(r"^(P\d{2}-\d{3})(?:[-_]|$)", str(value or ""), re.I)
+                if not code or code.group(1).upper() != project_code:
+                    continue
+                raw = row[price_col] if price_col < len(row) else None
+                if raw is None or raw == "":
+                    continue
+                if isinstance(raw, bool):
+                    raise ValueError("Montant accepté invalide dans List.xlsx")
+                price = float(raw)
+                if not math.isfinite(price) or price <= 0:
+                    raise ValueError("Montant accepté invalide dans List.xlsx")
+                amounts.add(round(price, 2))
+        if len(amounts) > 1:
+            raise ValueError("Plusieurs montants acceptés pour ce projet dans List.xlsx")
+        return next(iter(amounts), None)
+    finally:
+        workbook.close()
+
+
 def select_onedrive_project(chat_id, uid, choice_id):
     if str(choice_id) == "all":
         return show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=False)
@@ -604,6 +645,15 @@ def select_onedrive_project(chat_id, uid, choice_id):
             "project_created": True,
             "price": float(recovered.get("price") or 0),
         }
+
+    try:
+        registered_price = _registered_contract_price(folder)
+    except Exception:
+        logger.exception("Unable to verify registered contract for %s", folder)
+        legacy.tg(chat_id, "❌ Impossible de vérifier le contrat dans List.xlsx. Réessayez la sélection du projet.")
+        return
+    if registered_price is not None:
+        data["price"] = registered_price
 
     data["pending_invoice"] = None
     data["waiting_invoice_percentage"] = False
