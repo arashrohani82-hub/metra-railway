@@ -407,17 +407,57 @@ def onedrive_projects():
     return projects
 
 
-def show_onedrive_projects_for_invoice(chat_id, uid):
+def projects_with_receivables(projects):
+    """Match issued invoices to projects and subtract confirmed bot payments.
+
+    Read once per list request, before limiting the visible projects. Never
+    infer settlement from a fully invoiced contract or from a PDF filename.
+    """
+    import invoice_control_runtime as control
+    import payment_receipt_runtime as receipts
+    from payment_receipts import invoice_details, money, payment_balance
+
+    pattern = r"P\d{2}-\d{3}-[A-Z0-9]{2,5}(?![A-Z0-9])"
+    codes = {}
+    for item in projects:
+        match = re.search(pattern, str(item.get("name") or ""), re.I)
+        if match:
+            codes[match.group(0).upper()] = item
+    balances = {code: money(0) for code in codes}
+    records = receipts.ledger()
+    token = legacy.graph_access_token()
+    for item in legacy.list_onedrive_children(token, legacy.INVOICE_DRIVE_OWNER, legacy.INVOICE_FOLDER):
+        filename = str(item.get("name") or "")
+        if not filename.lower().endswith(".pdf") or not filename.upper().startswith("FAC"):
+            continue
+        named = re.search(pattern, filename, re.I)
+        if named and named.group(0).upper() not in codes:
+            continue
+        path = item.get("_receipt_path") or f"{legacy.INVOICE_FOLDER}/{filename}"
+        content = legacy.download_onedrive_path(token, legacy.INVOICE_DRIVE_OWNER, path)
+        text = control._pdf_text(content)
+        matched = set(re.findall(pattern, text.upper())) & codes.keys()
+        if not matched:
+            continue
+        if len(matched) != 1:
+            raise ValueError(f"Projet ambigu dans la facture {filename}")
+        invoice = invoice_details(text, filename)
+        _, remaining = payment_balance(invoice, receipts.invoice_records(invoice, records))
+        # A credit on one invoice must not conceal another unpaid invoice.
+        balances[next(iter(matched))] += max(remaining, money(0))
+    return [{**item, "receivable": balances[code]} for item in projects
+            for code in codes if codes[code] is item and balances[code] > 0]
+
+
+def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     uid = str(uid)
     try:
         projects = onedrive_projects()
+        if only_outstanding:
+            projects = projects_with_receivables(projects)
     except Exception as exc:
         logger.exception("Unable to list OneDrive projects for invoicing")
         legacy.tg(chat_id, f"❌ Impossible de lire les projets OneDrive : {exc}")
-        return
-
-    if not projects:
-        legacy.tg(chat_id, "Aucun projet n'a été trouvé dans OneDrive / Projects.")
         return
 
     session = legacy.user_data.get(uid, {})
@@ -430,7 +470,8 @@ def show_onedrive_projects_for_invoice(chat_id, uid):
             "web_url": item.get("webUrl") or "",
         }
         rows.append([{
-            "text": folder[:62],
+            "text": (f"{folder[:45]} | {item['receivable']:.2f} $"
+                     if only_outstanding else folder[:62]),
             "callback_data": f"od_invoice_project:{index}",
         }])
 
@@ -438,13 +479,25 @@ def show_onedrive_projects_for_invoice(chat_id, uid):
     session.pop("selected_onedrive_project", None)
     legacy.user_data[uid] = session
     legacy.save_user_data()
-    text = "🧾 Facturation\n\nChoisissez le projet à facturer :"
+    text = ("🧾 Projets avec solde à recevoir\n\n"
+            "Soldes TTC selon les paiements enregistrés dans ce bot.\n"
+            "Les paiements reçus ailleurs doivent être enregistrés ici."
+            if only_outstanding else "🧾 Nouvelle facture — tous les projets")
+    if only_outstanding:
+        rows.append([{"text": "🧾 Nouvelle facture / tous les projets",
+                      "callback_data": "od_invoice_project:all"}])
+        if not projects:
+            text += "\n\nAucun solde à recevoir selon le registre du bot."
+    elif not projects:
+        text += "\nAucun projet trouvé dans OneDrive / Projects."
     if len(projects) > 30:
         text += "\n(30 projets les plus récents sont affichés.)"
     legacy.tg(chat_id, text, rows)
 
 
 def select_onedrive_project(chat_id, uid, choice_id):
+    if str(choice_id) == "all":
+        return show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=False)
     uid = str(uid)
     session = legacy.user_data.get(uid, {})
     choice = (session.get("invoice_project_choices") or {}).get(str(choice_id))
