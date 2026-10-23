@@ -407,46 +407,44 @@ def onedrive_projects():
     return projects
 
 
-def projects_with_receivables(projects):
-    """Match issued invoices to projects and subtract confirmed bot payments.
+def projects_awaiting_settlement(projects):
+    """Use the live project register, including manual settlement confirmations.
 
-    Read once per list request, before limiting the visible projects. Never
-    infer settlement from a fully invoiced contract or from a PDF filename.
+    An unissued invoice is not evidence that a project is settled. Invoice
+    receipts remain invoice-specific and must not override this project list.
     """
-    import invoice_control_runtime as control
-    import payment_receipt_runtime as receipts
-    from payment_receipts import invoice_balance_details, money, payment_balance
-
-    pattern = r"P\d{2}-\d{3}-[A-Z0-9]{2,5}(?![A-Z0-9])"
-    codes = {}
-    for item in projects:
-        match = re.search(pattern, str(item.get("name") or ""), re.I)
-        if match:
-            codes[match.group(0).upper()] = item
-    balances = {code: money(0) for code in codes}
-    records = receipts.ledger()
-    token = legacy.graph_access_token()
-    for item in legacy.list_onedrive_children(token, legacy.INVOICE_DRIVE_OWNER, legacy.INVOICE_FOLDER):
-        filename = str(item.get("name") or "")
-        if not filename.lower().endswith(".pdf") or not filename.upper().startswith("FAC"):
-            continue
-        named = re.search(pattern, filename, re.I)
-        if named and named.group(0).upper() not in codes:
-            continue
-        path = item.get("_receipt_path") or f"{legacy.INVOICE_FOLDER}/{filename}"
-        content = legacy.download_onedrive_path(token, legacy.INVOICE_DRIVE_OWNER, path)
-        text = control._pdf_text(content)
-        matched = set(re.findall(pattern, text.upper())) & codes.keys()
-        if not matched:
-            continue
-        if len(matched) != 1:
-            raise ValueError(f"Projet ambigu dans la facture {filename}")
-        invoice = invoice_balance_details(text, filename)
-        _, remaining = payment_balance(invoice, receipts.invoice_records(invoice, records))
-        # A credit on one invoice must not conceal another unpaid invoice.
-        balances[next(iter(matched))] += max(remaining, money(0))
-    return [{**item, "receivable": balances[code]} for item in projects
-            for code in codes if codes[code] is item and balances[code] > 0]
+    config = legacy.microsoft_email_config()
+    content = legacy.download_onedrive_path(
+        legacy.graph_access_token(), config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
+    workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    try:
+        sheet = next((workbook[name] for name in workbook.sheetnames
+                      if name.strip().casefold() == "control project"), None)
+        if sheet is None:
+            raise ValueError("Onglet Control Project introuvable dans List.xlsx")
+        rows = iter(sheet.iter_rows(values_only=True))
+        headers = [str(v or "").strip().casefold() for v in next(rows)]
+        required = ("project no", "financial % complet")
+        if any(h not in headers for h in required):
+            raise ValueError("Colonnes du suivi des projets introuvables")
+        project_col = headers.index("project no")
+        financial_col = headers.index("financial % complet")
+        status_cols = [i for i, h in enumerate(headers) if h == "status"]
+        excluded = set()
+        closed = {"paid", "settled", "soldé", "solde", "payé", "paye",
+                  "cancelled", "canceled", "annulé", "annule", "close", "closed"}
+        for row in rows:
+            match = re.match(r"P\d{2}-\d{3}(?!\d)", str(row[project_col] or "").strip(), re.I)
+            if not match:
+                continue
+            status = {str(row[i] or "").strip().casefold() for i in status_cols if i < len(row)}
+            financial = row[financial_col] if financial_col < len(row) else None
+            if status & closed or (isinstance(financial, (int, float)) and financial >= 1):
+                excluded.add(match.group(0).upper())
+        return [item for item in projects
+                if str(item.get("name") or "")[:7].upper() not in excluded]
+    finally:
+        workbook.close()
 
 
 def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
@@ -454,7 +452,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     try:
         projects = onedrive_projects()
         if only_outstanding:
-            projects = projects_with_receivables(projects)
+            projects = projects_awaiting_settlement(projects)
     except Exception as exc:
         logger.exception("Unable to list OneDrive projects for invoicing")
         legacy.tg(chat_id, f"❌ Impossible de lire les projets OneDrive : {exc}")
@@ -470,8 +468,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             "web_url": item.get("webUrl") or "",
         }
         rows.append([{
-            "text": (f"{folder[:45]} | {item['receivable']:.2f} $"
-                     if only_outstanding else folder[:62]),
+            "text": folder[:62],
             "callback_data": f"od_invoice_project:{index}",
         }])
 
@@ -479,15 +476,15 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     session.pop("selected_onedrive_project", None)
     legacy.user_data[uid] = session
     legacy.save_user_data()
-    text = ("🧾 Projets avec solde à recevoir\n\n"
-            "Soldes TTC selon les paiements enregistrés dans ce bot.\n"
-            "Les paiements reçus ailleurs doivent être enregistrés ici."
+    text = ("🧾 Projets non soldés\n\n"
+            "Suivi des projets mis à jour depuis List.xlsx.\n"
+            "Les projets soldés ou annulés sont masqués."
             if only_outstanding else "🧾 Nouvelle facture — tous les projets")
     if only_outstanding:
         rows.append([{"text": "🧾 Nouvelle facture / tous les projets",
                       "callback_data": "od_invoice_project:all"}])
         if not projects:
-            text += "\n\nAucun solde à recevoir selon le registre du bot."
+            text += "\n\nAucun projet non soldé dans le suivi."
     elif not projects:
         text += "\nAucun projet trouvé dans OneDrive / Projects."
     if len(projects) > 30:
