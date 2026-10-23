@@ -20,6 +20,37 @@ from invoice_engine import generate_invoice_pdf
 USER=987661234
 
 
+def test_project_percentage_uses_receipt_amounts_net_of_each_invoice_taxes():
+    records = {
+        'a': {'project_folder':'P26-042-FIG', 'amount':'229.95', 'cumulative':'229.95',
+              'invoice':{**invoice(), 'filename':'FAC26-061.pdf','path':'invoice-061','total':'229.95'}},
+        'b': {'project_folder':'P26-042-FIG', 'amount':'597.87', 'cumulative':'597.87',
+              'invoice':{**invoice(), 'filename':'FAC26-075.pdf','path':'invoice-075','total':'597.87'}}}
+    def pdf(token, owner, path):
+        subtotal,total = ('200.00','229.95') if path=='invoice-061' else ('520.00','597.87')
+        return ('P26-042-FIG\nSous-total: '+subtotal+'\nMontant total: '+total).encode()
+    with patch.object(receipts,'ledger',return_value=records), \
+         patch.object(receipts,'INVOICE_NET_CACHE',{}), \
+         patch.object(app,'graph_access_token',return_value='test'), \
+         patch.object(app,'download_onedrive_path',side_effect=pdf) as download, \
+         patch.object(control,'_pdf_text',side_effect=lambda b:b.decode()), \
+         patch.object(receipts,'invoice_details',side_effect=lambda text,name:{'total':text.split('Montant total: ')[1]}):
+        assert receipts.project_received_fractions({'P26-042':800}) == {'P26-042':.9}
+        # A partial payment changes the percentage without assuming the invoice
+        # has been fully paid or adding its cumulative receipt field again.
+        records['b']['amount']='298.935'
+        assert receipts.project_received_fractions({'P26-042':800})['P26-042'] == .575
+        assert download.call_count == 2
+
+
+def test_unreadable_receipt_invoice_does_not_publish_partial_project_percentage():
+    with patch.object(receipts,'ledger',return_value={'a':{**pending(),'amount':'100'}}), \
+         patch.object(receipts,'INVOICE_NET_CACHE',{}), \
+         patch.object(app,'graph_access_token',return_value='test'), \
+         patch.object(app,'download_onedrive_path',side_effect=ValueError('Unavailable')):
+        assert receipts.project_received_fractions({'P26-040':1800}) == {}
+
+
 def test_invoice_selection_survives_session_replacement_and_remains_user_scoped(tmp_path):
     uid = str(USER)
     with patch.object(receipts, 'SELECTIONS', str(tmp_path/'selections.json')), \

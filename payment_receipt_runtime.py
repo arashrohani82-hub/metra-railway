@@ -8,6 +8,7 @@ import threading
 import urllib.parse
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import invoice_control_runtime as control
@@ -18,6 +19,56 @@ LOCK = threading.RLock()
 LEDGER = os.path.join(legacy.DATA_DIR, 'payment_receipts.json')
 SELECTIONS = os.path.join(legacy.DATA_DIR, 'payment_invoice_selections.json')
 METHODS = ('Interac', 'Virement bancaire', 'Chèque encaissé', 'Carte', 'Espèces', 'Autre')
+INVOICE_NET_CACHE = {}
+
+
+def project_received_fractions(contracts):
+    """Compute project receipts net of each invoice's actual taxes.
+
+    The ledger contains payments, not billing progress. Never add cumulative
+    receipt balances, and never assume that a fully paid invoice pays a contract.
+    """
+    grouped = {}
+    for record in ledger().values():
+        match = re.match(r'P\d{2}-\d{3}(?!\d)', record.get('project_folder', ''), re.I)
+        if match and match.group(0).upper() in contracts:
+            grouped.setdefault(match.group(0).upper(), []).append(record)
+    result = {}
+    token = None
+    for code, records in grouped.items():
+        try:
+            contract = money(contracts[code])
+            if contract <= 0:
+                continue
+            net_paid = Decimal('0.00')
+            for record in records:
+                invoice = record['invoice']
+                path = invoice.get('path') or f"{legacy.INVOICE_FOLDER}/{invoice['filename']}"
+                cache_key = (path, invoice['total'])
+                with LOCK:
+                    net_total = INVOICE_NET_CACHE.get(cache_key)
+                if net_total is None:
+                    token = token or legacy.graph_access_token()
+                    pdf = legacy.download_onedrive_path(token, legacy.INVOICE_DRIVE_OWNER, path)
+                    text = control._pdf_text(pdf)
+                    if code not in re.sub(r'\s+', '', text).upper():
+                        raise ValueError('Projet de la facture différent du reçu')
+                    match = re.search(r'Sous[- ]total\s*:\s*\$?\s*([\d ,]+[.,]\d{2})', text, re.I)
+                    if not match:
+                        raise ValueError('Sous-total de facture introuvable')
+                    net_total = parse_amount(match.group(1))
+                    details = invoice_details(text, invoice['filename'])
+                    if money(details['total']) != money(invoice['total']) or net_total <= 0:
+                        raise ValueError('Montants de la facture modifiés')
+                    with LOCK:
+                        INVOICE_NET_CACHE[cache_key] = net_total
+                net_paid += (money(record['amount']) * net_total / money(invoice['total']))
+            # Invoice totals include rounded taxes; round the recovered net sum
+            # to cents before comparing with the tax-exclusive contract amount.
+            result[code] = min(1.0, float(money(net_paid) / contract))
+        except Exception:
+            legacy.logger.exception('Cannot reconcile received percentage for %s', code)
+    return result
 
 
 def today():

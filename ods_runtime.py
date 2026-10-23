@@ -435,8 +435,8 @@ def _project_payment_label(item):
 def projects_awaiting_settlement(projects):
     """Use the live project register, including manual settlement confirmations.
 
-    An unissued invoice is not evidence that a project is settled. Invoice
-    receipts remain invoice-specific and must not override this project list.
+    Explicit closures remain authoritative. Confirmed receipts can advance the
+    displayed percentage beyond a stale workbook value.
     """
     config = legacy.microsoft_email_config()
     content = legacy.download_onedrive_path(
@@ -457,6 +457,8 @@ def projects_awaiting_settlement(projects):
         status_cols = [i for i, h in enumerate(headers) if h == "status"]
         excluded = set()
         received = {}
+        contracts = {}
+        price_col = headers.index('price(cad)') if 'price(cad)' in headers else None
         closed = {"paid", "settled", "soldé", "solde", "payé", "paye",
                   "cancelled", "canceled", "annulé", "annule", "close", "closed"}
         for row in rows:
@@ -467,8 +469,19 @@ def projects_awaiting_settlement(projects):
             financial = row[financial_col] if financial_col < len(row) else None
             code = match.group(0).upper()
             received[code] = _received_fraction(financial)
+            if price_col is not None and price_col < len(row) and row[price_col]:
+                contracts[code] = row[price_col]
             if status & closed or received[code] == 1:
                 excluded.add(code)
+        try:
+            from payment_receipt_runtime import project_received_fractions
+            live = project_received_fractions({k: v for k, v in contracts.items() if k not in excluded})
+            for code, fraction in live.items():
+                received[code] = max(received.get(code) or 0, fraction)
+                if received[code] >= 1:
+                    excluded.add(code)
+        except Exception:
+            logger.exception('Receipt percentages unavailable; retaining project register values')
         return [{**item, "received_fraction": received.get(str(item.get("name") or "")[:7].upper())}
                 for item in projects
                 if str(item.get("name") or "")[:7].upper() not in excluded]

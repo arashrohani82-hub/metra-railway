@@ -13,7 +13,7 @@ import app
 import ods_runtime as ods
 
 
-def register(rows):
+def register(rows, prices=None):
     wb = openpyxl.Workbook()
     sh = wb.active
     sh.title = "Control Project "
@@ -21,10 +21,25 @@ def register(rows):
                "Physical % Complet", "Financial % Complet", "Accounts Receivable (Now)",
                "Potential Remaining Receivable", "status"])
     for code, state, financial, paid in rows:
-        sh.append([None, 2026, code, None, None, state, None, financial, None, None, paid])
+        sh.append([None, 2026, code, None, (prices or {}).get(code), state, None, financial, None, None, paid])
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
+
+
+def test_confirmed_receipts_advance_stale_list_and_preserve_manual_settlement():
+    import payment_receipt_runtime as receipts
+    projects=[{'name':'P26-042-FIG'},{'name':'P26-035-ICK'}]
+    with patch.object(app,'microsoft_email_config',return_value={'EMAIL_SENDER':'owner'}), \
+         patch.object(app,'graph_access_token',return_value='test'), \
+         patch.object(app,'download_onedrive_path',return_value=register([
+             ('P26-042',None,.25,None),('P26-035',None,1,'Paid')],
+             {'P26-042':800,'P26-035':6500})), \
+         patch.object(receipts,'project_received_fractions',return_value={'P26-042':.9}) as live:
+        assert ods.projects_awaiting_settlement(projects)==[{'name':'P26-042-FIG','received_fraction':.9}]
+        live.assert_called_once_with({'P26-042':800})
+        live.return_value={'P26-042':1}
+        assert ods.projects_awaiting_settlement(projects)==[]
 
 
 def test_live_settlements_override_invoice_list_without_hiding_exception():
