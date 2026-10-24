@@ -23,7 +23,7 @@ def test_bilingual_template_and_custom_email_survive_sessions(tmp_path):
     with patch.object(app, 'DATA_DIR', str(tmp_path)), patch.object(app, 'ALLOWED_USERS', {123}), \
          patch.object(app, 'tg') as tg, patch.object(app.req, 'post') as post:
         runtime.department_dispatch(message(marketing.BUTTON))
-        assert 'Choose a language' in tg.call_args.args[1]
+        assert 'Send the client' in tg.call_args.args[1]
         marketing.handle(callback('lang:en'))
         marketing.handle(callback('template:coop'))
         assert 'Hello,' in tg.call_args.args[1]
