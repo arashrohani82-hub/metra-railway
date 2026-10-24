@@ -102,6 +102,7 @@ def button(label, action):
 def home(chat, lang):
     c = COPY[lang]
     send(chat, c['home'], [
+        [button('📸 Nouveau contact / New contact', 'contact')],
         [button(c[k], 'template:' + k) for k in ('intro', 'coop')],
         [button(c['follow'], 'template:follow')],
         [button(c['saved'], 'list:0'), button(c['add'], 'add')],
@@ -212,7 +213,10 @@ def handle(update):
             except Exception:
                 pass
         command = action[len(PREFIX):] if own_callback else 'languages'
-        if command == 'languages':
+        if command == 'contact':
+            import marketing_contact_runtime
+            marketing_contact_runtime.start(chat, uid, lang)
+        elif command == 'languages':
             send(chat, '📣 Marketing\n\nChoisissez la langue / Choose a language:',
                  [[button('🇫🇷 Français', 'lang:fr'), button('🇬🇧 English', 'lang:en')]])
         elif command in ('lang:fr', 'lang:en'):
