@@ -45,6 +45,8 @@ def env(tmp_path):
         stack.enter_context(patch.object(app, 'user_data', {'123': {'price': 6000, 'language': 'fr'}}))
         tg = stack.enter_context(patch.object(app, 'tg'))
         post = stack.enter_context(patch.object(app.req, 'post', return_value=Mock(status_code=202)))
+        stack.enter_context(patch.object(app.client.messages, 'create', return_value=Mock(
+            content=[Mock(text='{"subject":"Building renovation — Metra", "body":"Metra can assist with your building renovation. Could you share the plans?"}')])))
         yield tg, post
 
 
@@ -71,7 +73,8 @@ def test_photo_and_natural_intent_create_personalized_preview_without_send(env):
     with contact.database() as db:
         row = dict(db.execute('SELECT * FROM marketing_outbox WHERE nonce=?', (state['preview'],)).fetchone())
     assert row['recipient'] == 'marie@example.com'
-    assert row['body'].startswith('Hello Marie Tremblay,')
+    assert row['body'].startswith('Hello,')
+    assert 'building renovation' in row['body']
     assert 'ABC Architecture' in str(tg.call_args_list)
     assert app.user_data['123']['price'] == 6000
     assert graph_sends(post) == []
@@ -109,7 +112,7 @@ def test_exact_preview_sent_once_with_logo_and_persistent_claim(env):
     assert sent['subject'] == approved['subject']
     assert sent['toRecipients'][0]['emailAddress']['address'] == approved['recipient']
     assert sent['body']['content'].count('Arash Rohani, ing., P.Eng.') == 1
-    assert 'Hello Marie Tremblay,' in sent['body']['content']
+    assert 'Hello,' in sent['body']['content']
     assert 'Cordialement' not in sent['body']['content']
     assert sent['attachments'][0]['isInline'] is True
     with contact.database() as db:
@@ -183,7 +186,7 @@ def test_language_switch_invalidates_preview_and_keeps_contact(env):
     assert current()['contacts'][0]['name'] == 'Marie Tremblay'
     contact.handle(callback('send:' + state['preview']))
     contact.handle(callback('compose:intro'))
-    assert tg.call_args.args[1].startswith('Bonjour Marie Tremblay,')
+    assert tg.call_args.args[1].startswith('Bonjour,')
     assert graph_sends(post) == []
 
 
@@ -211,3 +214,39 @@ def test_configuration_failure_does_not_claim_send(env):
     with contact.database() as db:
         assert db.execute('SELECT status FROM marketing_outbox').fetchone()['status'] == 'ready'
     assert graph_sends(post) == []
+
+
+@pytest.mark.parametrize('name,title,lang,expected', [
+    ('Jean Roy', 'M.', 'fr', 'Bonjour M. Jean Roy,'),
+    ('Nawal', 'Mme', 'fr', 'Bonjour Mme Nawal,'),
+    ('Mr. Shaw', '', 'en', 'Hello Mr. Shaw,'),
+    ('Mme Marie Tremblay', '', 'en', 'Hello Ms. Marie Tremblay,'),
+    ('Nawal', '', 'fr', 'Bonjour,'),
+])
+def test_formal_greeting_uses_explicit_title_only(name, title, lang, expected):
+    assert contact.formal_greeting(client(name=name, title=title), lang) == expected
+
+
+def test_composer_receives_request_and_operator_intent(env):
+    source([client(title='Mme', request='Inspection de façade à Laval')], 'fr')
+    with patch.object(app.client.messages, 'create', return_value=Mock(content=[Mock(
+            text='{"subject":"Inspection de façade à Laval", "body":"Notre équipe peut vous accompagner pour cette inspection. Pouvez-vous transmettre les plans disponibles ?"}')])) as model:
+        contact.handle(message('پرزنتیشن بفرستم'))
+    prompt = model.call_args.kwargs['messages'][0]['content']
+    assert 'Inspection de façade à Laval' in prompt
+    assert 'پرزنتیشن بفرستم' in prompt
+    with contact.database() as db:
+        row = db.execute('SELECT * FROM marketing_outbox').fetchone()
+    assert row['subject'] == 'Inspection de façade à Laval'
+    assert row['body'].startswith('Bonjour Mme Marie Tremblay,')
+    assert row['body'].count(contact.library.SIGNATURE) == 1
+
+
+def test_generation_failure_never_substitutes_generic_letter(env):
+    source()
+    with patch.object(app.client.messages, 'create', side_effect=RuntimeError('unavailable')):
+        contact.handle(message('presentation'))
+    assert current()['phase'] == 'action'
+    with contact.database() as db:
+        assert db.execute('SELECT COUNT(*) FROM marketing_outbox').fetchone()[0] == 0
+    assert graph_sends(env[1]) == []

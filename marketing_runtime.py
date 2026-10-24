@@ -44,16 +44,16 @@ COPY = {
 }
 TEMPLATES = {
     'fr': {
-        'intro': ('Présentation de Metra Consultation — Services d’ingénierie',
-                  'Bonjour,\n\nJe souhaite vous présenter Metra Consultation, une firme offrant des services en ingénierie de structure, génie civil, géotechnique et inspection de bâtiments.\n\nNous accompagnons les propriétaires, entrepreneurs, architectes et syndicats de copropriété dans leurs projets de rénovation, de construction et d’évaluation de bâtiments.\n\nAvez-vous un projet pour lequel notre équipe pourrait vous accompagner ? Nous serions heureux d’en discuter avec vous.\n\nCordialement,'),
+        'intro': ('Votre demande sur Bark — Services en structure',
+                  'Bonjour,\n\nJe vous contacte à la suite de votre demande sur Bark. Je suis ingénieur chez Metra Consultation, une firme offrant des services en structure : évaluation de bâtiments, modification de murs porteurs, conception de poutres et interventions sur les fondations.\n\nPour mieux comprendre votre besoin et vous préparer une soumission adaptée, pourriez-vous nous préciser les travaux envisagés et l’adresse du projet ? Quelques photos ainsi que les plans disponibles nous aideraient également à évaluer le mandat.\n\nAu plaisir d’en discuter avec vous.\n\nCordialement,'),
         'coop': ('Possibilité de collaboration avec Metra Consultation',
                  'Bonjour,\n\nJe vous contacte au nom de Metra Consultation afin d’explorer une collaboration avec votre équipe. Nous proposons des services en structure, génie civil, géotechnique et inspection de bâtiments, selon les besoins de chaque mandat.\n\nNous serions heureux d’échanger sur vos projets et sur la façon dont notre expertise pourrait compléter vos services. Seriez-vous disponible pour un bref appel ?\n\nCordialement,'),
         'follow': ('Suivi — Possibilité de collaboration',
                    'Bonjour,\n\nJe me permets de faire un suivi à mon précédent message concernant les services de Metra Consultation et une éventuelle collaboration.\n\nSi vous avez un besoin actuel ou à venir en ingénierie ou en inspection de bâtiments, je serais heureux d’en discuter avec vous.\n\nMerci pour votre temps et au plaisir d’échanger.\n\nCordialement,'),
     },
     'en': {
-        'intro': ('Introducing Metra Consultation — Engineering services',
-                  'Hello,\n\nI would like to introduce Metra Consultation, a firm offering structural, civil and geotechnical engineering services, as well as building inspections.\n\nWe support property owners, contractors, architects and condominium associations with renovation, construction and building assessment projects.\n\nDo you have a project our team could help with? We would be happy to discuss your needs.\n\nKind regards,'),
+        'intro': ('Your Bark request — Structural engineering services',
+                  'Hello,\n\nI am contacting you regarding your request on Bark. I am an engineer at Metra Consultation, a firm providing structural engineering services, including building assessments, load-bearing wall modifications, beam design and foundation work.\n\nTo better understand your needs and prepare a suitable quote, could you describe the proposed work and provide the project address? A few photos and any available plans would also help us assess the scope.\n\nI look forward to discussing your project.\n\nKind regards,'),
         'coop': ('Exploring a collaboration with Metra Consultation',
                  'Hello,\n\nI am reaching out on behalf of Metra Consultation to explore a potential collaboration with your team. We offer structural, civil and geotechnical engineering services and building inspections, tailored to each assignment.\n\nWe would welcome the opportunity to learn about your projects and discuss how our expertise could complement your services. Would you be available for a brief call?\n\nKind regards,'),
         'follow': ('Following up — Potential collaboration',
