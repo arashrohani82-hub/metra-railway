@@ -467,7 +467,7 @@ def main_menu():
             [{'text': '📝 Nouvelle offre'}],
             [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '🧾 Facturation'}],
-            [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
+            [{'text': '📣 Marketing'}, {'text': '❌ Annuler'}],
         ],
         'resize_keyboard': True,
         'is_persistent': True,

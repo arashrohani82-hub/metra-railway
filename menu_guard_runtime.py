@@ -17,7 +17,7 @@ def final_main_menu():
             [{'text': '📁 Convertir une offre en projet'}],
             [{'text': '🧾 Facturation'}],
             [{'text': '📊 Tableau de bord'}],
-            [{'text': '❓ Aide'}, {'text': '❌ Annuler'}],
+            [{'text': '📣 Marketing'}, {'text': '❌ Annuler'}],
         ],
         'resize_keyboard': True,
         'is_persistent': True,
@@ -39,6 +39,7 @@ MAIN_MENU_COMMANDS = {
     "📷 Envoyer une photo",
     "📋 Coller un texte",
     "❓ Aide",
+    "📣 Marketing",
     "❌ Annuler",
 }
 
