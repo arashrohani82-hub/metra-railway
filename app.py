@@ -854,7 +854,7 @@ def generate_pdf(data):
     if data.get('special_note'):
         story.append(Spacer(1, 2))
         story.append(Paragraph(
-            '<b>Note spéciale : </b>' + str(data.get('special_note'))[:250],
+            '<b>Note spéciale : </b>' + html.escape(str(data.get('special_note'))),
             sn2,
         ))
     story.append(Spacer(1, 4))
