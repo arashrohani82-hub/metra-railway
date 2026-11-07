@@ -89,8 +89,6 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 LOGOS = {
     'metra': os.path.join(BASE, 'logo_metra.png'),
-    'ing':   os.path.join(BASE, 'logo_ing.png'),
-    'peo':   os.path.join(BASE, 'logo_peo.png'),
     'rgcq':  os.path.join(BASE, 'logo_rgcq.png'),
 }
 
@@ -662,8 +660,6 @@ def draw_header_footer(canvas, doc):
     canvas.line(1.8*cm, H-3.6*cm, W-1.8*cm, H-3.6*cm)
     canvas.setLineWidth(0.5)
     canvas.line(1.8*cm, 2.0*cm, W-1.8*cm, 2.0*cm)
-    canvas.drawImage(LOGOS['ing'],  2*cm,  0.3*cm, width=2*cm,  height=1.4*cm, preserveAspectRatio=True, mask='auto')
-    canvas.drawImage(LOGOS['peo'],  8*cm,  0.3*cm, width=3*cm,  height=1.4*cm, preserveAspectRatio=True, mask='auto')
     canvas.drawImage(LOGOS['rgcq'],15*cm,  0.3*cm, width=2*cm,  height=1.4*cm, preserveAspectRatio=True, mask='auto')
     canvas.setFont('Helvetica', 8)
     canvas.drawRightString(W-1.8*cm, 0.6*cm, f'{doc.page} | Page')
@@ -887,11 +883,34 @@ def generate_pdf(data):
     buf.seek(0)
     return buf
 
+def remove_regulator_logos(workbook):
+    """Remove embedded OIQ/PEO marks while retaining company/association art.
+
+    The shared Excel template contains its own images, independent of LOGOS.
+    Match their bytes rather than their order or anchor so relocated company
+    logos are preserved. Restore image streams consumed by openpyxl._data().
+    """
+    import hashlib
+    regulator_images = {
+        '30d8e901274ebc4ab197fbdf87de1a812fafca2abf08ff6519cdb6da849da13c',
+        '45fff8205258ceefd8cd597d984c7c2f5d3ddccd610e57109b68781473213e3a',
+    }
+    for sheet in workbook.worksheets:
+        retained = []
+        for image in sheet._images:
+            content = image._data()
+            image.ref = io.BytesIO(content)
+            if hashlib.sha256(content).hexdigest() not in regulator_images:
+                retained.append(image)
+        sheet._images = retained
+
+
 def generate_excel(data):
     template = os.path.join(BASE, 'template.xlsx')
     out_path = f"/tmp/{data['odsNum']}.xlsx"
     shutil.copy(template, out_path)
     wb = openpyxl.load_workbook(out_path)
+    remove_regulator_logos(wb)
     ws = wb['ODS']
     contact = client_contact_fields(data)
     ws['B7'] = client_identity(data)

@@ -318,7 +318,7 @@ def draw_proposal_branding(canvas, doc, data):
     canvas.setFont('Loi16Regular', 8)
     canvas.drawString(1.8*cm, 2.57*cm,
                       'Project province: Quebec' if en else 'Province du projet : Québec')
-    for key, x, logo_width in (('ing', 2.2, 2.5), ('peo', 8.5, 3.0), ('rgcq', 15.2, 2.4)):
+    for key, x, logo_width in (('rgcq', 15.2, 2.4),):
         canvas.drawImage(_ODS.LOGOS[key], x*cm, .5*cm,
                          width=logo_width*cm, height=1.5*cm,
                          preserveAspectRatio=True, mask='auto')

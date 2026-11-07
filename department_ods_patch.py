@@ -181,8 +181,6 @@ def draw_header_footer(canvas, doc):
     canvas.line(1.8*legacy.cm, legacy.H-3.6*legacy.cm, legacy.W-1.8*legacy.cm, legacy.H-3.6*legacy.cm)
     canvas.setLineWidth(0.5)
     canvas.line(1.8*legacy.cm, 2.0*legacy.cm, legacy.W-1.8*legacy.cm, 2.0*legacy.cm)
-    canvas.drawImage(legacy.LOGOS['ing'], 2*legacy.cm, .3*legacy.cm, width=2*legacy.cm, height=1.4*legacy.cm, preserveAspectRatio=True, mask='auto')
-    canvas.drawImage(legacy.LOGOS['peo'], 8*legacy.cm, .3*legacy.cm, width=3*legacy.cm, height=1.4*legacy.cm, preserveAspectRatio=True, mask='auto')
     canvas.drawImage(legacy.LOGOS['rgcq'], 15*legacy.cm, .3*legacy.cm, width=2*legacy.cm, height=1.4*legacy.cm, preserveAspectRatio=True, mask='auto')
     canvas.setFont('Helvetica', 8)
     canvas.drawRightString(legacy.W-1.8*legacy.cm, .6*legacy.cm, f'{doc.page} | Page')
