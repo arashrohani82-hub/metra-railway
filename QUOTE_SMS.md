@@ -17,8 +17,9 @@ TWILIO_FROM_NUMBER=+14388129037
 
 Disabled by default. The bot uses the current offer's `phone` and `odsNum`;
 10-digit North American numbers are normalized to +1. Missing/invalid numbers
-skip SMS and produce a Telegram notice after email sending. French and English
-notices use ASCII text to stay within one SMS segment for standard ODS references.
+skip SMS and produce a Telegram notice after email sending. The approved French
+notice includes accents and may span multiple SMS segments. The English notice
+uses ASCII text and fits one segment for standard ODS references.
 Ensure the client expects this quotation notice.
 
 The existing persistent `/data` volume stores `quote_sms.sqlite3`. A unique

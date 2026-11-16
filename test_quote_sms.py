@@ -45,14 +45,15 @@ class QuoteSmsTests(unittest.TestCase):
             self.assertEqual(self.send(dict(self.data, phone=phone))['status'], 'missing_phone')
         self.post.assert_not_called()
 
-    def test_request_and_one_segment_body(self):
+    def test_request_and_approved_french_body(self):
         self.assertEqual(self.send()['status'], 'queued')
         kwargs = self.post.call_args.kwargs
         self.assertEqual(kwargs['data']['To'], '+15145551234')
         self.assertEqual(kwargs['data']['From'], '+14388129037')
         self.assertIn('ODS26-135-STR-EDI', kwargs['data']['Body'])
-        self.assertLessEqual(len(kwargs['data']['Body']), 160)
-        self.assertTrue(kwargs['data']['Body'].isascii())
+        self.assertEqual(kwargs['data']['Body'],
+            'Bonjour! Merci de votre confiance. Votre offre ODS26-135-STR-EDI vous attend par courriel. '
+            'Pensez à vérifier vos indésirables.\n\nMetra Consultation Inc.\nSTOP pour arrêter.')
         self.assertEqual(kwargs['timeout'], (5, 15))
 
     def test_duplicate_is_durable_and_full_reference_is_used(self):

@@ -45,8 +45,9 @@ def notify_quote(data, data_dir):
         return {'status': 'missing_reference'}
 
     body = (
-        f'Metra Consultation: votre offre {offer} a ete envoyee par courriel. '
-        'Verifiez aussi les indesirables. STOP pour arreter.'
+        f'Bonjour! Merci de votre confiance. Votre offre {offer} vous attend par courriel. '
+        'Pensez à vérifier vos indésirables.\n\n'
+        'Metra Consultation Inc.\nSTOP pour arrêter.'
     )
     if data.get('language') == 'en':
         body = (
