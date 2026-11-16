@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import requests
 
 import quote_sms
+from email_inline_logo import LOGO_SOURCE, inline_logo_attachment
 
 
 class QuoteSmsTests(unittest.TestCase):
@@ -110,6 +111,8 @@ class EmailIntegrationTests(unittest.TestCase):
             'base64': base64, 'req': Mock(), 'logger': Mock(),
             'notify_quote': self.sms, 'DATA_DIR': '/unused-test',
             'archive_ods_files': self.archive,
+            'LOGO_SOURCE': LOGO_SOURCE, 'inline_logo_attachment': inline_logo_attachment,
+            'LOGOS': {'metra': 'logo_metra.png'},
         }
         self.ns['req'].post.return_value = self.response
         exec(compile(ast.Module(body=[fn], type_ignores=[]), 'app.py', 'exec'), self.ns)

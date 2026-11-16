@@ -24,6 +24,7 @@ from invoice_engine import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from quote_sms import notify_quote, operator_message as sms_operator_message
+from email_inline_logo import LOGO_SOURCE, inline_logo_attachment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1892,6 +1893,9 @@ def send_ods_email(data):
         },
         'saveToSentItems': True,
     }
+    # Embed the signature image in this Graph message alongside the offer PDF.
+    if LOGO_SOURCE in payload['message']['body']['content']:
+        payload['message']['attachments'].append(inline_logo_attachment(LOGOS['metra']))
     config = microsoft_email_config()
     token = graph_access_token()
     sender = urllib.parse.quote(config['EMAIL_SENDER'], safe='')

@@ -1,15 +1,16 @@
-"""Metra branded ODS email signature with hosted logo."""
+"""Metra branded ODS email signature with an embedded logo."""
 import html
 import os
 
 import app as ods
+from email_inline_logo import LOGO_SOURCE
 
 PUBLIC_URL = os.environ.get('PUBLIC_URL', '').strip().rstrip('/')
 if not PUBLIC_URL:
     railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '').strip()
     PUBLIC_URL = f'https://{railway_domain}' if railway_domain else 'https://web-production-c7adbe.up.railway.app'
 
-LOGO_URL = f'{PUBLIC_URL}/assets/metra-logo.png'
+LOGO_URL = LOGO_SOURCE
 
 
 def email_logo():
