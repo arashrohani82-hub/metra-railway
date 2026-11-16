@@ -23,6 +23,7 @@ from invoice_engine import (
     invoice_number_from_filename,
 )
 from concurrent.futures import ThreadPoolExecutor
+from quote_sms import notify_quote, operator_message as sms_operator_message
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1903,6 +1904,13 @@ def send_ods_email(data):
     if response.status_code != 202:
         logger.error("Microsoft sendMail error: %s %s", response.status_code, response.text[:500])
         raise RuntimeError("Microsoft 365 a refusé l'envoi du courriel.")
+    # Start SMS immediately after email acceptance, before slow OneDrive work.
+    # SMS failures must never turn a successful email into a resend prompt.
+    try:
+        data['sms_notification'] = notify_quote(data, DATA_DIR)
+    except Exception:
+        data['sms_notification'] = {'status': 'unknown'}
+        logger.warning('ODS email accepted; SMS notification needs review')
     archive_files = []
     archive_error = None
     try:
@@ -1967,6 +1975,9 @@ def do_send_email(chat_id, uid):
         user_data[uid] = data
         save_user_data()
         record_sent_offer(uid, data)
+        sms_notice = sms_operator_message(data.get('sms_notification'))
+        if sms_notice:
+            tg(chat_id, sms_notice)
         list_sync_error = None
         try:
             sync_ods_list(data, 'In process')
