@@ -100,6 +100,13 @@ def _strip_label(value, labels):
     return text
 
 
+def confirmed_project_client(folder_name):
+    """Use the customer identity confirmed for this project by its owner."""
+    if re.match(r"^P26-059-PHH(?:[-_]|$)", str(folder_name or ""), re.I):
+        return "Pedram Hooshangitabrizi"
+    return None
+
+
 def recover_project_metadata_from_onedrive(folder_name):
     """Recover invoice metadata by scanning archived ODS Excel or PDF files."""
     try:
@@ -286,6 +293,7 @@ def recover_project_metadata_from_onedrive(folder_name):
             if token not in ignored_tokens and not re.fullmatch(r"p?\d+", token)
         }
         scored_sources = []
+        confirmed_client = confirmed_project_client(folder_name)
         for relative_path, item in candidates:
             filename = str(item.get("name") or "")
             try:
@@ -294,6 +302,8 @@ def recover_project_metadata_from_onedrive(folder_name):
                     recovered = from_excel(content, filename)
                 else:
                     recovered = from_pdf(content, filename)
+                if confirmed_client and legacy.normalize_client_name(recovered.get("name")).casefold() != confirmed_client.casefold():
+                    continue
                 name_tokens = set(re.findall(
                     r"[a-z0-9]{3,}", str(recovered.get("name") or "").lower()
                 ))
@@ -371,6 +381,7 @@ def _ask_missing_invoice_client_field(chat_id, uid, data):
         chat_id,
         "⚠️ Information manquante pour la facture.\n\n"
         f"Veuillez entrer : {label}\n{examples[field]}",
+        [[{"text": "💳 Enregistrer un paiement", "callback_data": "pay_start"}]],
     )
     return True
 
@@ -431,7 +442,8 @@ def _project_payment_label(item, compact=False, *, show_payment=True):
     if compact:
         match = re.match(r"^(P\d{2}-\d{3})(?:-([A-Z0-9]{3})(?=[-_]|$))?", folder)
         if match:
-            parts = [match.group(0).removeprefix("P26-"), item.get("client_name") or "Client n/d"]
+            client = confirmed_project_client(folder) or item.get("client_name") or "Client n/d"
+            parts = [match.group(0).removeprefix("P26-"), client]
             if show_payment:
                 percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "À vérif."
                 parts.append(percent)
@@ -735,8 +747,12 @@ def select_onedrive_project(chat_id, uid, choice_id):
     folder = choice["folder"]
     ref, record = _find_history_by_project_folder(folder)
     recovered = recover_project_metadata_from_onedrive(folder)
+    confirmed_client = confirmed_project_client(folder)
     if record:
         data = legacy.history_data_copy(record.get("data") or {})
+        if confirmed_client and legacy.normalize_client_name(data.get("name")).casefold() != confirmed_client.casefold():
+            for field in ("name", "civility", "addr", "phone", "email"):
+                data.pop(field, None)
         for field, value in recovered.items():
             if value in (None, "", 0):
                 continue
@@ -756,6 +772,8 @@ def select_onedrive_project(chat_id, uid, choice_id):
             "price": float(recovered.get("price") or 0),
         }
 
+    if confirmed_client:
+        data["name"] = confirmed_client
     try:
         registered_price = _registered_contract_price(folder)
     except Exception:

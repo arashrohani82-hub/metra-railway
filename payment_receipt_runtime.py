@@ -12,13 +12,15 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import invoice_control_runtime as control
+from ods_runtime import confirmed_project_client
 from payment_receipts import invoice_details, money, parse_amount, payment_balance, split_payment, receipt_pdf
 
 legacy = control.legacy
 LOCK = threading.RLock()
 LEDGER = os.path.join(legacy.DATA_DIR, 'payment_receipts.json')
 SELECTIONS = os.path.join(legacy.DATA_DIR, 'payment_invoice_selections.json')
-METHODS = ('Interac', 'Virement bancaire', 'Chèque encaissé', 'Carte', 'Espèces', 'Autre')
+CASH = 'Espèces'
+METHODS = ('Interac', 'Virement bancaire', 'Chèque encaissé', 'Carte', CASH, 'Autre')
 INVOICE_NET_CACHE = {}
 
 
@@ -185,10 +187,12 @@ def show_amount(chat_id, uid, invoice, project_folder=None):
         legacy.tg(chat_id, '✅ Cette facture est déjà acquittée selon le registre du bot.')
         return
     data = legacy.user_data.setdefault(uid, {})
+    folder = project_folder or data['project_folder']
+    client = confirmed_project_client(folder) or invoice['client']
     data['payment_pending'] = {'key': uuid.uuid4().hex, 'invoice': invoice,
-                               'project_folder':project_folder or data['project_folder'], 'date':today().isoformat()}
+                               'project_folder': folder, 'date': today().isoformat()}
     save_session(uid)
-    legacy.tg(chat_id, f"Facture : {invoice['filename']}\nClient : {invoice['client']}\n"
+    legacy.tg(chat_id, f"Facture : {invoice['filename']}\nClient du projet : {client}\n"
               f'Solde enregistré : {remaining:.2f} $\n\nQuel montant avez-vous réellement reçu (taxes incluses)?', [
               [{'text':'✅ Solde complet','callback_data':'pay_full'}],
               [{'text':'✏️ Autre montant reçu','callback_data':'pay_amount'}],
@@ -197,7 +201,8 @@ def show_amount(chat_id, uid, invoice, project_folder=None):
 
 def show_methods(chat_id, uid):
     legacy.tg(chat_id, 'Quel est le mode du paiement reçu?',
-              [[{'text':m,'callback_data':f'pay_method:{i}'}] for i,m in enumerate(METHODS)])
+              [[{'text': 'Espèces · comptabilité' if method == CASH else method,
+                 'callback_data': f'pay_method:{i}'}] for i, method in enumerate(METHODS)])
 
 
 def credit_summary(applied, credit):
@@ -217,14 +222,18 @@ def show_confirmation(chat_id, uid):
         pending['confirmed_balance'] = str(balance)
         key = pending['key'] = uuid.uuid4().hex
         save_session(uid)
+    accounting_only = pending['method'] == CASH
+    client = confirmed_project_client(pending['project_folder']) or invoice['client']
+    action = '✅ Fonds reçus - enregistrer' if accounting_only else '✅ Fonds reçus - créer le reçu'
+    note = ('Le paiement sera enregistré en comptabilité.' if accounting_only else
+            'Le reçu sera créé. Vous pourrez ensuite choisir de l’envoyer au client.')
     legacy.tg(chat_id, f"🧾 Confirmation du paiement reçu\n\nFacture : {invoice['filename']}\n"
-              f"Client : {invoice['client']}\nMontant reçu : {received:.2f} $\n"
+              f"Client du projet : {client}\nMontant reçu : {received:.2f} $\n"
               + credit_summary(applied, credit) +
               f"Date : {pending['date']}\nMode : {pending['method']}\n"
               f"Solde après paiement : {balance - applied:.2f} $\n\n"
-              'Confirmez uniquement après réception effective des fonds. Le reçu sera créé; '
-              'vous pourrez ensuite choisir de l’envoyer au client.', [
-              [{'text':'✅ Fonds reçus - créer le reçu','callback_data':'pay_confirm:'+key}],
+              'Confirmez uniquement après réception effective des fonds. ' + note, [
+              [{'text': action, 'callback_data': 'pay_confirm:'+key}],
               [{'text':'📅 Modifier la date','callback_data':'pay_date'}],
               [{'text':'❌ Annuler','callback_data':'pay_cancel'}]])
 
@@ -245,7 +254,9 @@ def issue_receipt(chat_id, uid, key):
                 confirmed_balance is None and credit
             ):
                 raise ValueError('Le solde de la facture a changé. Ouvrez de nouveau Réception d’un paiement.')
-            record = {**pending, 'uid':uid, 'received':str(received), 'amount':str(applied),
+            client = confirmed_project_client(pending['project_folder']) or pending['invoice']['client']
+            record = {**pending, 'uid':uid, 'client': client, 'accounting_only': pending['method'] == CASH,
+                      'received':str(received), 'amount':str(applied),
                       'credit':str(credit), 'cumulative':str(paid+applied), 'remaining':str(balance-applied),
                       'id':f"REC{today().year % 100:02d}-{pending['invoice']['number']}-{key[:12].upper()}",
                       'archive_year':str(today().year), 'archived':False, 'emailed':False}
@@ -255,28 +266,37 @@ def issue_receipt(chat_id, uid, key):
             save_ledger(records)
         if record['uid'] != uid:
             raise ValueError('Ce reçu appartient à une autre session.')
-        pdf = receipt_pdf(record)
+        accounting_only = record.get('accounting_only', False)
+        pdf = None if accounting_only else receipt_pdf(record)
         filename = record['id']+'.pdf'
-        token = legacy.graph_access_token()
+        token = legacy.graph_access_token() if pdf is not None or not record['archived'] else None
         root = f"Metra Structure Inc/Financial/Recus/{record['archive_year']}"
         if not record['archived']:
             legacy.create_onedrive_folder(token,legacy.INVOICE_DRIVE_OWNER,'Metra Structure Inc/Financial','Recus')
             legacy.create_onedrive_folder(token,legacy.INVOICE_DRIVE_OWNER,'Metra Structure Inc/Financial/Recus',record['archive_year'])
-            legacy.upload_onedrive_path(token,legacy.INVOICE_DRIVE_OWNER,f'{root}/{filename}',pdf,'application/pdf')
+            if pdf is not None:
+                legacy.upload_onedrive_path(token,legacy.INVOICE_DRIVE_OWNER,f'{root}/{filename}',pdf,'application/pdf')
             legacy.upload_onedrive_path(token,legacy.INVOICE_DRIVE_OWNER,f"{root}/{record['id']}.json",
                                         json.dumps(record,ensure_ascii=False).encode(),'application/json')
             record['archived'] = True
             save_ledger(records)
+        if (data.get('payment_pending') or {}).get('key') == key:
+            data.pop('payment_pending',None)
+            data.pop('payment_waiting',None)
+            save_session(uid)
+        if accounting_only:
+            legacy.tg(chat_id, f"✅ Paiement en espèces enregistré en comptabilité.\n"
+                      f"Client : {record['client']}\n"
+                      f"Montant reçu : {money(record['received']):.2f} $\n"
+                      + credit_summary(money(record['amount']), money(record['credit']))
+                      + f"Solde : {money(record['remaining']):.2f} $")
+            return
         project_year = '20'+re.search(r'P(\d{2})-',record['project_folder']).group(1)
         try:
             legacy.upload_onedrive_path(token,legacy.INVOICE_DRIVE_OWNER,
                 f"Metra Structure Inc/Projects/{project_year}/{record['project_folder']}/Correspondence/{filename}",pdf,'application/pdf')
         except Exception:
             legacy.tg(chat_id,'⚠️ Reçu conservé dans Financial; copie dans le dossier projet non disponible.')
-        if (data.get('payment_pending') or {}).get('key') == key:
-            data.pop('payment_pending',None)
-            data.pop('payment_waiting',None)
-            save_session(uid)
         legacy.tg_doc(chat_id,io.BytesIO(pdf),filename,'✅ Réception enregistrée. Reçu de paiement.')
         legacy.tg(chat_id,f"Reçu : {record['id']}\n"
                   + credit_summary(money(record['amount']), money(record.get('credit', 0)))
@@ -290,6 +310,11 @@ def send_receipt(chat_id, uid, key):
         record=records.get(key)
         if not record or record['uid']!=uid or not record['archived']:
             raise ValueError('Reçu introuvable ou non archivé')
+        if record.get('accounting_only'):
+            raise ValueError('Ce paiement est réservé à la comptabilité.')
+        client = confirmed_project_client(record['project_folder'])
+        if client and legacy.normalize_client_name(record['invoice']['client']).casefold() != client.casefold():
+            raise ValueError('Vérifiez le destinataire indiqué sur la facture avant tout envoi.')
         if record['emailed']:
             legacy.tg(chat_id,'✅ Ce reçu a déjà été envoyé au client.')
             return

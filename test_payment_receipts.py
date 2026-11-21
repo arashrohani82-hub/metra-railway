@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tempfile
 from datetime import date
@@ -216,6 +217,36 @@ def test_bot_records_and_archives_overpayment_without_double_counting(tmp_path):
         text = ''.join(page.extract_text() for page in pdf.pages)
         assert 'FACTURE ACQUITTÉE' in text and 'Crédit client non imputé' in text
         assert all(amount in text for amount in ('400.00', '344.93', '55.07'))
+
+
+def test_cash_payment_credits_invoice_and_archives_only_the_internal_record(tmp_path):
+    p = {**pending(), 'method': receipts.CASH, 'project_folder': 'P26-059-PHH-Conception'}
+    uid = str(USER)
+    app.user_data[uid] = {'payment_pending': p}
+    with patch.object(receipts, 'LEDGER', str(tmp_path/'ledger.json')), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg, patch.object(app, 'tg_doc') as doc, \
+         patch.object(app, 'graph_access_token', return_value='test'), patch.object(app.req, 'post') as post, \
+         patch.object(app, 'create_onedrive_folder'), patch.object(app, 'upload_onedrive_path') as upload:
+        receipts.show_confirmation(USER, uid)
+        assert 'Pedram Hooshangitabrizi' in tg.call_args.args[1]
+        assert 'enregistrer' in tg.call_args.args[2][0][0]['text']
+        key = p['key']
+        assert receipts.ledger() == {}
+        receipts.issue_receipt(USER, uid, key)
+        receipts.issue_receipt(USER, uid, key)
+        records = receipts.ledger()
+        assert list(records) == [key]
+        record = records[key]
+        assert record['client'] == 'Pedram Hooshangitabrizi'
+        assert record['archived'] and record['accounting_only']
+        assert payment_balance(p['invoice'], [record]) == (money('200'), money('317.39'))
+        upload.assert_called_once()
+        assert upload.call_args.args[2].endswith('.json')
+        assert json.loads(upload.call_args.args[3])['method'] == receipts.CASH
+        doc.assert_not_called()
+        with pytest.raises(ValueError, match='réservé à la comptabilité'):
+            receipts.send_receipt(USER, uid, key)
+        post.assert_not_called()
 
 
 def test_confirmation_revalidates_balance_against_another_payment(tmp_path):
