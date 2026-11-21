@@ -56,7 +56,8 @@ def test_invoice_menu_subtracts_existing_cash_payment_from_project_contract():
          patch.object(receipts, 'ledger', return_value=records), \
          patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg:
         ods.show_onedrive_projects_for_invoice(1, 'cash-balance')
-        assert tg.call_args.args[2][0][1]['text'] == '1 225 $'
+        assert tg.call_args.args[2][0][0]['text'] == 'Total des soldes · 1 225,00 $ HT'
+        assert tg.call_args.args[2][1][1]['text'] == '1 225 $'
         assert '1 225,00 $' in tg.call_args.args[1]
         download.assert_called_once()
 
@@ -96,7 +97,7 @@ def test_filter_before_limit_and_clear_stale_choices_on_empty_list():
     filter_projects.assert_called_once_with(projects, include_financials=True)
     assert app.user_data[uid]["invoice_project_choices"] == {}
     assert "Aucun projet non soldé" in tg.call_args.args[1]
-    assert tg.call_args.args[2][0][0]["callback_data"] == "od_invoice_project:all"
+    assert tg.call_args.args[2][-1][0]["callback_data"] == "od_invoice_project:all"
 
 
 def test_new_invoice_keeps_access_to_all_projects():
