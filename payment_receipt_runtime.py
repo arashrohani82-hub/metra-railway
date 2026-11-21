@@ -12,7 +12,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import invoice_control_runtime as control
-from payment_receipts import invoice_details, money, parse_amount, payment_balance, validate_payment, receipt_pdf
+from payment_receipts import invoice_details, money, parse_amount, payment_balance, split_payment, receipt_pdf
 
 legacy = control.legacy
 LOCK = threading.RLock()
@@ -191,7 +191,7 @@ def show_amount(chat_id, uid, invoice, project_folder=None):
     legacy.tg(chat_id, f"Facture : {invoice['filename']}\nClient : {invoice['client']}\n"
               f'Solde enregistré : {remaining:.2f} $\n\nQuel montant avez-vous réellement reçu (taxes incluses)?', [
               [{'text':'✅ Solde complet','callback_data':'pay_full'}],
-              [{'text':'✏️ Montant reçu / paiement partiel','callback_data':'pay_amount'}],
+              [{'text':'✏️ Autre montant reçu','callback_data':'pay_amount'}],
               [{'text':'❌ Annuler','callback_data':'pay_cancel'}]])
 
 
@@ -200,19 +200,31 @@ def show_methods(chat_id, uid):
               [[{'text':m,'callback_data':f'pay_method:{i}'}] for i,m in enumerate(METHODS)])
 
 
+def credit_summary(applied, credit):
+    if not credit:
+        return ''
+    return f"Imputé à cette facture : {applied:.2f} $\nCrédit client non imputé : {credit:.2f} $\n"
+
+
 def show_confirmation(chat_id, uid):
     pending = legacy.user_data[uid]['payment_pending']
     invoice = pending['invoice']
-    paid, _ = payment_balance(invoice, invoice_records(invoice))
-    amount = validate_payment(invoice, invoice_records(invoice), pending['amount'])
-    remaining = money(invoice['total']) - paid - amount
+    with LOCK:
+        if pending['key'] in ledger():
+            raise ValueError('Le paiement est déjà enregistré. Réessayez la création du même reçu.')
+        _, balance = payment_balance(invoice, invoice_records(invoice))
+        received, applied, credit = split_payment(pending['amount'], balance)
+        pending['confirmed_balance'] = str(balance)
+        key = pending['key'] = uuid.uuid4().hex
+        save_session(uid)
     legacy.tg(chat_id, f"🧾 Confirmation du paiement reçu\n\nFacture : {invoice['filename']}\n"
-              f"Client : {invoice['client']}\nMontant reçu : {amount:.2f} $\n"
+              f"Client : {invoice['client']}\nMontant reçu : {received:.2f} $\n"
+              + credit_summary(applied, credit) +
               f"Date : {pending['date']}\nMode : {pending['method']}\n"
-              f"Solde après paiement : {remaining:.2f} $\n\n"
+              f"Solde après paiement : {balance - applied:.2f} $\n\n"
               'Confirmez uniquement après réception effective des fonds. Le reçu sera créé; '
               'vous pourrez ensuite choisir de l’envoyer au client.', [
-              [{'text':'✅ Fonds reçus - créer le reçu','callback_data':'pay_confirm:'+pending['key']}],
+              [{'text':'✅ Fonds reçus - créer le reçu','callback_data':'pay_confirm:'+key}],
               [{'text':'📅 Modifier la date','callback_data':'pay_date'}],
               [{'text':'❌ Annuler','callback_data':'pay_cancel'}]])
 
@@ -226,10 +238,15 @@ def issue_receipt(chat_id, uid, key):
         if not record:
             if pending.get('key') != key or not pending.get('method') or not pending.get('amount'):
                 raise ValueError('Confirmation expirée. Ouvrez de nouveau Réception d’un paiement.')
-            amount = validate_payment(pending['invoice'], invoice_records(pending['invoice'],records), pending['amount'])
-            paid,_ = payment_balance(pending['invoice'], invoice_records(pending['invoice'],records))
-            record = {**pending, 'uid':uid, 'amount':str(amount), 'cumulative':str(paid+amount),
-                      'remaining':str(money(pending['invoice']['total'])-paid-amount),
+            paid, balance = payment_balance(pending['invoice'], invoice_records(pending['invoice'], records))
+            received, applied, credit = split_payment(pending['amount'], balance)
+            confirmed_balance = pending.get('confirmed_balance')
+            if (confirmed_balance is not None and money(confirmed_balance) != balance) or (
+                confirmed_balance is None and credit
+            ):
+                raise ValueError('Le solde de la facture a changé. Ouvrez de nouveau Réception d’un paiement.')
+            record = {**pending, 'uid':uid, 'received':str(received), 'amount':str(applied),
+                      'credit':str(credit), 'cumulative':str(paid+applied), 'remaining':str(balance-applied),
                       'id':f"REC{today().year % 100:02d}-{pending['invoice']['number']}-{key[:12].upper()}",
                       'archive_year':str(today().year), 'archived':False, 'emailed':False}
             records[key] = record
@@ -261,7 +278,9 @@ def issue_receipt(chat_id, uid, key):
             data.pop('payment_waiting',None)
             save_session(uid)
         legacy.tg_doc(chat_id,io.BytesIO(pdf),filename,'✅ Réception enregistrée. Reçu de paiement.')
-        legacy.tg(chat_id,f"Reçu : {record['id']}\nSolde : {money(record['remaining']):.2f} $", [
+        legacy.tg(chat_id,f"Reçu : {record['id']}\n"
+                  + credit_summary(money(record['amount']), money(record.get('credit', 0)))
+                  + f"Solde : {money(record['remaining']):.2f} $", [
             [{'text':'📧 Envoyer le reçu au client','callback_data':'pay_email:'+key}]])
 
 
@@ -280,9 +299,10 @@ def send_receipt(chat_id, uid, key):
         sender=urllib.parse.quote(legacy.INVOICE_EMAIL_SENDER,safe='')
         body={'message':{'subject':'Reçu de paiement - '+record['invoice']['filename'],
             'body':{'contentType':'Text','content':f"Bonjour {record['invoice']['client']},\n\n"
-                f"Nous confirmons la réception de {money(record['amount']):.2f} $ le {record['date']} "
-                f"pour la facture {record['invoice']['filename']}.\n"
-                f"Solde de cette facture : {money(record['remaining']):.2f} $.\n\n"
+                f"Nous confirmons la réception de {money(record.get('received', record['amount'])):.2f} $ le {record['date']}.\n"
+                f"Facture : {record['invoice']['filename']}.\n"
+                + credit_summary(money(record['amount']), money(record.get('credit', 0)))
+                + f"Solde de cette facture : {money(record['remaining']):.2f} $.\n\n"
                 'Veuillez trouver le reçu en pièce jointe. Merci de votre confiance.\n\nMetra Consultation Inc.'},
             'toRecipients':[{'emailAddress':{'address':email}}],
             'attachments':[{'@odata.type':'#microsoft.graph.fileAttachment','name':record['id']+'.pdf',
@@ -351,9 +371,13 @@ def handle_update(update):
         else:
             pending=data.get('payment_pending') or {}
             if not pending: raise ValueError('Ouvrez de nouveau Réception d’un paiement.')
+            if pending['key'] in ledger():
+                raise ValueError('Le paiement est déjà enregistré. Réessayez la création du même reçu.')
             if action=='pay_full':
                 _,remaining=payment_balance(pending['invoice'],invoice_records(pending['invoice']))
-                pending['amount']=str(validate_payment(pending['invoice'],invoice_records(pending['invoice']),remaining))
+                received, _, _ = split_payment(remaining, remaining)
+                pending.update(amount=str(received), key=uuid.uuid4().hex)
+                pending.pop('confirmed_balance', None)
                 save_session(uid)
                 show_methods(chat_id,uid)
             elif action in ('pay_amount','pay_date'):
@@ -368,7 +392,10 @@ def handle_update(update):
                 show_confirmation(chat_id,uid)
             elif msg and waiting:
                 if waiting=='amount':
-                    pending['amount']=str(validate_payment(pending['invoice'],invoice_records(pending['invoice']),parse_amount(text)))
+                    _, remaining = payment_balance(pending['invoice'], invoice_records(pending['invoice']))
+                    received, _, _ = split_payment(parse_amount(text), remaining)
+                    pending.update(amount=str(received), key=uuid.uuid4().hex)
+                    pending.pop('confirmed_balance', None)
                 else:
                     try:
                         received=datetime.strptime(text,'%Y-%m-%d').date()
