@@ -601,8 +601,10 @@ def show_pending_offers(chat_id, uid, query=''):
     pending = pending_offer_records(uid, query)
     rows = []
     for ref, record in pending[:10]:
-        title = str((record.get('data') or {}).get('project_title') or 'Projet').strip()
-        label = f"{ref} — {title}"[:60]
+        data = record.get('data') or {}
+        client = normalize_client_name(data.get('name')) or 'Client non indiqué'
+        title = str(data.get('project_title') or data.get('service') or 'Projet').strip()
+        label = f"{ref} · {client} · {title}"[:60]
         rows.append([{'text': label, 'callback_data': f'offer_pick:{ref}'}])
     rows.append([{'text': '🔎 Rechercher par numéro ODS', 'callback_data': 'offer_search'}])
     if pending:
@@ -1805,10 +1807,20 @@ def next_project_number(items, year):
 
 
 def project_folder_name(data, number, year, code):
+    client = normalize_client_name(data.get('name'))
     title = str(data.get('project_title') or data.get('service') or 'Projet').strip()
-    title = re.sub(r'[\s–—]+', '-', safe_archive_filename(title))
-    title = re.sub(r'-+', '-', title).strip('-')[:110] or 'Projet'
-    return f"P{year[-2:]}-{number:03d}-{code}-{title}"
+
+    def folder_segment(value):
+        if not value:
+            return ''
+        slug = re.sub(r'[\s–—]+', '-', safe_archive_filename(value))
+        return re.sub(r'-+', '-', slug).strip('-')
+
+    client_segment = folder_segment(client)[:65].rstrip('-')
+    title_limit = 109 - len(client_segment) if client_segment else 110
+    title_segment = folder_segment(title)[:title_limit].rstrip('-') or 'Projet'
+    segments = [f"P{year[-2:]}-{number:03d}-{code}", client_segment, title_segment]
+    return '-'.join(segment for segment in segments if segment)
 
 
 def create_project_from_ods(data):
