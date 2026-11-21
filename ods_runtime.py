@@ -825,21 +825,3 @@ logger.info("ODS RUNTIME ONEDRIVE INVOICE PROJECT LIST ACTIVE")
 # must not silently replace its URL with ODS_PUBLIC_URL's legacy default.
 if __name__ == "__main__" or os.environ.get("ODS_FORCE_WEBHOOK") == "1":
     force_telegram_webhook()
-
-# Read-only verification of the invoice-list sources during this rollout.
-if os.environ.get("RAILWAY_PROJECT_ID") == "71034332-a846-4d2c-869d-1d3982fdf3a9":
-    import threading
-
-    def _verify_invoice_rollout():
-        try:
-            items = projects_awaiting_settlement(onedrive_projects(), include_financials=True)
-            watched = {f"P26-{number:03}" for number in range(50, 61)}
-            flags = [
-                f"{_project_number(item.get('name'))}:{int(item.get('contract') is not None)}/{int(item.get('received_fraction') is not None)}"
-                for item in items if _project_number(item.get("name")) in watched
-            ]
-            logger.info("Invoice rollout verification: %s", ",".join(flags))
-        except Exception as exc:
-            logger.warning("Invoice rollout verification failed: %s", type(exc).__name__)
-
-    threading.Thread(target=_verify_invoice_rollout, daemon=True).start()
