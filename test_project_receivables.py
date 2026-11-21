@@ -42,6 +42,25 @@ def test_confirmed_receipts_advance_stale_list_and_preserve_manual_settlement():
         assert ods.projects_awaiting_settlement(projects)==[]
 
 
+def test_invoice_menu_subtracts_existing_cash_payment_from_project_contract():
+    import payment_receipt_runtime as receipts
+
+    folder = 'P26-059-PHH-Conception'
+    records = {'confirmed': {'project_folder': folder, 'method': receipts.CASH,
+                             'received': '475.00', 'amount': '475.00', 'accounting_only': True}}
+    with patch.object(ods, 'onedrive_projects', return_value=[{'name': folder}]), \
+         patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'owner'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', return_value=register(
+             [('P26-059', None, None, None)], {'P26-059': 1700})) as download, \
+         patch.object(receipts, 'ledger', return_value=records), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg:
+        ods.show_onedrive_projects_for_invoice(1, 'cash-balance')
+        assert tg.call_args.args[2][0][1]['text'] == '1 225 $'
+        assert '1 225,00 $' in tg.call_args.args[1]
+        download.assert_called_once()
+
+
 def test_live_settlements_override_invoice_list_without_hiding_exception():
     rows = [(f"P26-{i:03d}", "Cancelled" if i==7 else None, None if i==23 else 1,
              None if i==23 else "Paid") for i in range(1,32)]
