@@ -42,10 +42,18 @@ def test_total_includes_projects_beyond_button_limit_and_unknown_is_explicit():
     assert '1 projet(s) hors total' in text
     assert len(buttons) == 31  # 30 projects and new-invoice action
     _, _, unknown_buttons = render([items[-1]])
-    assert unknown_buttons[0][1]['text'] == 'Solde n/d'
+    assert unknown_buttons[0][1]['text'] == 'Contrat à confirmer'
 
 
 def test_new_invoice_all_projects_keeps_one_column():
     _, text, buttons = render([{'name': 'P26-001-ABC'}], outstanding=False)
     assert text == '🧾 Nouvelle facture — tous les projets'
     assert len(buttons[0]) == 1
+
+
+def test_known_contract_is_shown_without_counting_unconfirmed_payments():
+    _, text, buttons = render([{'name': 'P26-060-LPA', 'contract': 3500, 'received_fraction': None}])
+    assert 'Reste à recevoir : 0,00 $' in text
+    assert 'Contrats avec encaissements non confirmés : 3 500,00 $' in text
+    assert buttons[0][0]['text'].startswith('P26-060 | Reçu ?')
+    assert buttons[0][1]['text'] == 'Contrat 3 500 $'

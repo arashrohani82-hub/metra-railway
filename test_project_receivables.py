@@ -114,3 +114,23 @@ def test_receipt_percentage_preserves_zero_and_distinguishes_unknown():
 @pytest.mark.parametrize("value",[None,"",True,-0.1,1.5,"25",float("nan"),float("inf")])
 def test_invalid_percentage_is_unknown(value):
     assert ods._received_fraction(value) is None
+
+
+def test_accepted_price_fills_missing_contract_for_receipt_reconciliation():
+    import payment_receipt_runtime as receipts
+
+    wb = openpyxl.load_workbook(io.BytesIO(register([('P26-060', None, None, None)])))
+    data = wb.create_sheet('data 2026')
+    data.append(['Project Code', 'Accepted Price'])
+    data.append(['P26-060-LPA-Contrat', 4000])
+    data.append(['P26-061-ABC-Contrat', 2000])
+    output = io.BytesIO()
+    wb.save(output)
+    projects = [{'name': 'P26-060-LPA'}, {'name': 'P26-061-ABC'}]
+    with patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'owner'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', return_value=output.getvalue()), \
+         patch.object(receipts, 'project_received_fractions', return_value={'P26-060': .25}) as live:
+        result = ods.projects_awaiting_settlement(projects, include_financials=True)
+    live.assert_called_once_with({'P26-060': 4000, 'P26-061': 2000})
+    assert [(item['contract'], item['received_fraction']) for item in result] == [(4000, .25), (2000, None)]

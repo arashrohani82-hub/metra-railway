@@ -1,5 +1,6 @@
 import io
 import logging
+import math
 import os
 import re
 import time
@@ -429,11 +430,43 @@ def _project_payment_label(item, compact=False):
     prefix = f"Reçu {fraction * 100:.1f}".rstrip("0").rstrip(".") + " %" if fraction is not None else "Reçu n/d"
     name = str(item.get("name") or "").strip()
     if compact:
-        percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "n/d"
+        percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "Reçu ?"
         label = f"{name[:7]} | {percent} | {name[7:].lstrip('-_')}"
     else:
         label = f"{prefix} | {name}"
     return label if len(label) <= 62 else label[:61] + "…"
+
+
+def _project_number(value):
+    match = re.match(r"^(P\d{2}-\d{3})(?:[-_]|$)", str(value or "").strip(), re.I)
+    return match.group(1).upper() if match else None
+
+
+def _contract_amount(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(amount, 2) if math.isfinite(amount) and amount > 0 else None
+
+
+def _accepted_contract_amounts(workbook, wanted):
+    amounts = {}
+    for sheet in workbook.worksheets:
+        rows = iter(sheet.iter_rows(values_only=True))
+        headers = [str(value or "").strip().casefold() for value in next(rows, ())]
+        if not {"project code", "accepted price"} <= set(headers):
+            continue
+        project_col = headers.index("project code")
+        price_col = headers.index("accepted price")
+        for row in rows:
+            code = _project_number(row[project_col])
+            price = row[price_col]
+            if code in wanted and price not in (None, ""):
+                amounts.setdefault(code, set()).add(_contract_amount(price))
+    return amounts
 
 
 def projects_awaiting_settlement(projects, include_financials=False):
@@ -446,6 +479,7 @@ def projects_awaiting_settlement(projects, include_financials=False):
     content = legacy.download_onedrive_path(
         legacy.graph_access_token(), config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
     workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    project_codes = {_project_number(item.get("name")) for item in projects} - {None}
     try:
         sheet = next((workbook[name] for name in workbook.sheetnames
                       if name.strip().casefold() == "control project"), None)
@@ -468,19 +502,44 @@ def projects_awaiting_settlement(projects, include_financials=False):
         closed = {"paid", "settled", "soldé", "solde", "payé", "paye",
                   "cancelled", "canceled", "annulé", "annule", "close", "closed"}
         for row in rows:
-            match = re.match(r"P\d{2}-\d{3}(?!\d)", str(row[project_col] or "").strip(), re.I)
-            if not match:
+            code = _project_number(row[project_col])
+            if code not in project_codes:
                 continue
             status = {str(row[i] or "").strip().casefold() for i in status_cols if i < len(row)}
             financial = row[financial_col] if financial_col < len(row) else None
-            code = match.group(0).upper()
-            received[code] = _received_fraction(financial)
+            fraction = _received_fraction(financial)
+            if fraction is not None:
+                received[code] = fraction
             if physical_col is not None and physical_col < len(row):
                 physical[code] = _received_fraction(row[physical_col])
-            if price_col is not None and price_col < len(row) and row[price_col]:
-                contracts[code] = row[price_col]
-            if status & closed or received[code] == 1:
+            if price_col is not None and price_col < len(row):
+                price = _contract_amount(row[price_col])
+                if price is not None:
+                    contracts[code] = price
+            if status & closed or fraction == 1:
                 excluded.add(code)
+        missing_contracts = project_codes - contracts.keys() - excluded
+        if missing_contracts:
+            accepted = _accepted_contract_amounts(workbook, missing_contracts)
+            for code, amounts in accepted.items():
+                if len(amounts) == 1 and None not in amounts:
+                    contracts[code] = next(iter(amounts))
+
+            # Conversion history can recover contracts from before Project Code
+            # was added to the accepted-offer register.
+            folders = {str(item.get("name") or ""): _project_number(item.get("name")) for item in projects}
+            history_amounts = {}
+            for records in legacy.offers_history.values():
+                for record in (records or {}).values():
+                    data = record.get("data") or {}
+                    folder = record.get("project_folder") or data.get("project_folder")
+                    code = folders.get(folder)
+                    if (code in missing_contracts and code not in accepted
+                            and (record.get("converted") or record.get("status") == "Accept")):
+                        history_amounts.setdefault(code, set()).add(_contract_amount(data.get("price")))
+            for code, amounts in history_amounts.items():
+                if len(amounts) == 1 and None not in amounts:
+                    contracts[code] = next(iter(amounts))
         try:
             from payment_receipt_runtime import project_received_fractions
             live = project_received_fractions({k: v for k, v in contracts.items() if k not in excluded})
@@ -490,12 +549,11 @@ def projects_awaiting_settlement(projects, include_financials=False):
                     excluded.add(code)
         except Exception:
             logger.exception('Receipt percentages unavailable; retaining project register values')
-        result = [{**item, "received_fraction": received.get(str(item.get("name") or "")[:7].upper())}
-                for item in projects
-                if str(item.get("name") or "")[:7].upper() not in excluded]
+        result = [{**item, "received_fraction": received.get(_project_number(item.get("name")))}
+                  for item in projects if _project_number(item.get("name")) not in excluded]
         if include_financials:
             for item in result:
-                code = str(item.get('name') or '')[:7].upper()
+                code = _project_number(item.get("name"))
                 item.update(contract=contracts.get(code), physical_fraction=physical.get(code))
         return result
     finally:
@@ -531,7 +589,12 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
         }]
         if only_outstanding:
             balance = balances.get(folder[:7].upper())
-            label = amount(balance).replace(',00 $', ' $') if balance is not None else 'Solde n/d'
+            if balance is not None:
+                label = amount(balance).replace(',00 $', ' $')
+            elif item.get("contract") is not None:
+                label = f"Contrat {amount(item['contract'])}".replace(',00 $', ' $')
+            else:
+                label = "Contrat à confirmer"
             project_row.append({'text': label, 'callback_data': f'od_invoice_project:{index}'})
         rows.append(project_row)
 
@@ -547,8 +610,11 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
                 "Les soldes ci-dessous sont avant taxes.\n"
                 "Touchez un projet pour l’ouvrir.")
         if report['unknown']:
-            text += (f"\n⚠️ {len(report['unknown'])} projet(s) hors total : "
-                     "contrat ou réception non renseignés (n/d).")
+            pending = sum(p.get("contract") or 0 for p in report["unknown"])
+            text += f"\n⚠️ {len(report['unknown'])} projet(s) hors total, à vérifier."
+            if pending:
+                text += (f"\nContrats avec encaissements non confirmés : {amount(pending)}. "
+                         "Ces montants sont exclus du solde total.")
     else:
         text = "🧾 Nouvelle facture — tous les projets"
     if only_outstanding:
@@ -565,38 +631,17 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
 
 def _registered_contract_price(folder):
     """Read the accepted fee by exact project code from the live offer register."""
-    import math
-    match = re.match(r"^(P\d{2}-\d{3})(?:[-_]|$)", str(folder), re.I)
-    if not match:
+    project_code = _project_number(folder)
+    if not project_code:
         return None
-    project_code = match.group(1).upper()
     config = legacy.microsoft_email_config()
     content = legacy.download_onedrive_path(
         legacy.graph_access_token(), config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
     workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    amounts = set()
     try:
-        for sheet in workbook.worksheets:
-            rows = iter(sheet.iter_rows(values_only=True))
-            headers = [str(v or "").strip().casefold() for v in next(rows, ())]
-            if "project code" not in headers or "accepted price" not in headers:
-                continue
-            project_col = headers.index("project code")
-            price_col = headers.index("accepted price")
-            for row in rows:
-                value = row[project_col] if project_col < len(row) else None
-                code = re.match(r"^(P\d{2}-\d{3})(?:[-_]|$)", str(value or ""), re.I)
-                if not code or code.group(1).upper() != project_code:
-                    continue
-                raw = row[price_col] if price_col < len(row) else None
-                if raw is None or raw == "":
-                    continue
-                if isinstance(raw, bool):
-                    raise ValueError("Montant accepté invalide dans List.xlsx")
-                price = float(raw)
-                if not math.isfinite(price) or price <= 0:
-                    raise ValueError("Montant accepté invalide dans List.xlsx")
-                amounts.add(round(price, 2))
+        amounts = _accepted_contract_amounts(workbook, {project_code}).get(project_code, set())
+        if None in amounts:
+            raise ValueError("Montant accepté invalide dans List.xlsx")
         if len(amounts) > 1:
             raise ValueError("Plusieurs montants acceptés pour ce projet dans List.xlsx")
         return next(iter(amounts), None)
@@ -780,3 +825,21 @@ logger.info("ODS RUNTIME ONEDRIVE INVOICE PROJECT LIST ACTIVE")
 # must not silently replace its URL with ODS_PUBLIC_URL's legacy default.
 if __name__ == "__main__" or os.environ.get("ODS_FORCE_WEBHOOK") == "1":
     force_telegram_webhook()
+
+# Read-only verification of the invoice-list sources during this rollout.
+if os.environ.get("RAILWAY_PROJECT_ID") == "71034332-a846-4d2c-869d-1d3982fdf3a9":
+    import threading
+
+    def _verify_invoice_rollout():
+        try:
+            items = projects_awaiting_settlement(onedrive_projects(), include_financials=True)
+            watched = {f"P26-{number:03}" for number in range(50, 61)}
+            flags = [
+                f"{_project_number(item.get('name'))}:{int(item.get('contract') is not None)}/{int(item.get('received_fraction') is not None)}"
+                for item in items if _project_number(item.get("name")) in watched
+            ]
+            logger.info("Invoice rollout verification: %s", ",".join(flags))
+        except Exception as exc:
+            logger.warning("Invoice rollout verification failed: %s", type(exc).__name__)
+
+    threading.Thread(target=_verify_invoice_rollout, daemon=True).start()
