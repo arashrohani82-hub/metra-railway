@@ -30,7 +30,8 @@ def test_same_project_opens_from_either_column_and_total_uses_received_fraction(
     assert buttons[0][1]['text'] == '1 350 $'
     assert buttons[1][1]['text'] == '80 $'
     assert buttons[0][0]['callback_data'] == buttons[0][1]['callback_data']
-    assert app.user_data['list-balance']['invoice_project_choices']['1']['folder'] == 'P26-049-TMN-Inspection'
+    key = buttons[0][0]['callback_data'].split(':', 1)[1]
+    assert app.user_data['list-balance']['invoice_project_choices'][key]['folder'] == 'P26-049-TMN-Inspection'
 
 
 def test_total_includes_projects_beyond_button_limit_and_unknown_is_explicit():
@@ -85,6 +86,8 @@ def test_confirmed_client_replaces_stale_project_059_metadata():
          patch.object(ods, '_registered_contract_price', return_value=1700), \
          patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg:
         ods.select_onedrive_project(1, uid, '1')
+        invoice_button = tg.call_args.args[2][1][0]['callback_data']
+        ods.select_onedrive_project(1, uid, invoice_button.split(':', 1)[1])
         assert app.user_data[uid]['name'] == 'Pedram Hooshangitabrizi'
         assert not app.user_data[uid].get('email')
         assert tg.call_args.args[2][0][0]['callback_data'] == 'pay_start'

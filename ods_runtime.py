@@ -5,6 +5,7 @@ import os
 import re
 import time
 import urllib.parse
+import uuid
 from datetime import datetime
 
 import openpyxl
@@ -651,11 +652,13 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     session = legacy.user_data.get(uid, {})
     choices = {}
     rows = []
-    for index, item in enumerate(projects[:30], start=1):
+    for item in projects[:30]:
+        index = uuid.uuid4().hex[:12]
         folder = str(item.get("name") or "").strip()
-        choices[str(index)] = {
+        choices[index] = {
             "folder": folder,
             "web_url": item.get("webUrl") or "",
+            "client": confirmed_project_client(folder) or item.get("client_name"),
         }
         project_row = [{
             "text": _project_payment_label(item, compact=True, show_payment=only_outstanding),
@@ -675,6 +678,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
 
     session["invoice_project_choices"] = choices
     session.pop("selected_onedrive_project", None)
+    session.pop("invoice_project_mode", None)
     legacy.user_data[uid] = session
     legacy.save_user_data()
     if only_outstanding:
@@ -727,23 +731,41 @@ def _registered_contract_price(folder):
 
 
 def select_onedrive_project(chat_id, uid, choice_id):
-    if str(choice_id) == "all":
+    if choice_id == "all":
         return show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=False)
     uid = str(uid)
     session = legacy.user_data.get(uid, {})
-    choice = (session.get("invoice_project_choices") or {}).get(str(choice_id))
-
-    if not choice:
-        selected = session.get("selected_onedrive_project") or {}
-        if str(selected.get("choice_id") or "") == str(choice_id):
-            if session.get("waiting_invoice_contract_amount"):
-                return
-            if float(session.get("price") or 0) > 0:
-                base.show_invoice_options_multi(chat_id, uid)
+    mode, _, selection_key = str(choice_id).partition(":")
+    if not selection_key:
+        choice = (session.get("invoice_project_choices") or {}).get(str(choice_id))
+        if choice:
+            key = uuid.uuid4().hex
+            session["invoice_project_mode"] = {**choice, "key": key, "choice_id": str(choice_id)}
+            for field in ("waiting_invoice_client_field", "waiting_invoice_contract_amount",
+                          "payment_pending", "payment_waiting"):
+                session.pop(field, None)
+            legacy.save_user_data()
+            legacy.tg(chat_id, f"📁 {choice['folder']}\n\nQuel type d’opération?", [
+                [{"text": "💵 Espèces · comptabilité", "callback_data": f"od_invoice_project:cash:{key}"}],
+                [{"text": "🧾 Facture", "callback_data": f"od_invoice_project:invoice:{key}"}],
+            ])
             return
-        legacy.tg(chat_id, "❌ Projet introuvable. Ouvrez de nouveau Facturation.")
-        return
+    else:
+        choice = session.get("invoice_project_mode") or {}
+        if choice.get("key") == selection_key and mode in ("cash", "invoice"):
+            session.pop("invoice_project_mode", None)
+            legacy.save_user_data()
+            if mode == "cash":
+                from payment_receipt_runtime import show_project_cash
+                show_project_cash(chat_id, uid, choice["folder"], choice.get("client"))
+            else:
+                open_project_invoice(chat_id, uid, choice)
+            return
+    legacy.tg(chat_id, "❌ Sélection expirée. Ouvrez de nouveau Facturation.")
 
+
+def open_project_invoice(chat_id, uid, choice):
+    session = legacy.user_data.get(uid, {})
     folder = choice["folder"]
     ref, record = _find_history_by_project_folder(folder)
     recovered = recover_project_metadata_from_onedrive(folder)
@@ -788,7 +810,7 @@ def select_onedrive_project(chat_id, uid, choice_id):
     data["waiting_invoice_amount"] = False
     data["invoice_project_choices"] = session.get("invoice_project_choices") or {}
     data["selected_onedrive_project"] = {
-        "choice_id": str(choice_id),
+        "choice_id": choice["choice_id"],
         "folder": folder,
         "web_url": choice.get("web_url") or "",
     }

@@ -14,6 +14,7 @@ os.environ.setdefault('DATA_DIR',tempfile.mkdtemp(prefix='metra-receipt-test-'))
 import app
 import runtime
 import invoice_control_runtime as control
+import ods_runtime as ods
 import payment_receipt_runtime as receipts
 from payment_receipts import money, parse_amount, invoice_details, payment_balance, split_payment, receipt_pdf
 from invoice_engine import generate_invoice_pdf
@@ -247,6 +248,51 @@ def test_cash_payment_credits_invoice_and_archives_only_the_internal_record(tmp_
         with pytest.raises(ValueError, match='réservé à la comptabilité'):
             receipts.send_receipt(USER, uid, key)
         post.assert_not_called()
+
+
+def test_project_picker_can_register_cash_without_an_invoice(tmp_path):
+    uid = str(USER)
+    folder = 'P26-059-PHH-Conception'
+    app.user_data[uid] = {'invoice_project_choices': {'1': {'folder': folder}}}
+
+    def tap(action):
+        update = {'callback_query': {'id': 'test', 'data': action, 'from': {'id': USER},
+                                    'message': {'chat': {'id': USER}}}}
+        runtime.department_dispatch(update)
+
+    with patch.object(receipts, 'LEDGER', str(tmp_path/'ledger.json')), \
+         patch.object(app, 'ALLOWED_USERS', {USER}), patch.object(app.req, 'post'), \
+         patch.object(runtime, 'refresh_reply_keyboard'), patch.object(app, 'save_user_data'), \
+         patch.object(app, 'tg') as tg, patch.object(app, 'tg_doc') as doc, \
+         patch.object(app, 'graph_access_token', return_value='test'), \
+         patch.object(app, 'create_onedrive_folder'), patch.object(app, 'upload_onedrive_path') as upload, \
+         patch.object(ods, 'open_project_invoice') as invoice_path, \
+         patch.object(receipts, 'show_invoices') as invoice_picker:
+        tap('od_invoice_project:1')
+        assert [row[0]['text'] for row in tg.call_args.args[2]] == ['💵 Espèces · comptabilité', '🧾 Facture']
+        cash = tg.call_args.args[2][0][0]['callback_data']
+        tap(cash)
+        runtime.department_dispatch({'message': {'from': {'id': USER}, 'chat': {'id': USER}, 'text': '400,00'}})
+        assert 'Pedram Hooshangitabrizi' in tg.call_args.args[1]
+        assert '400.00 $' in tg.call_args.args[1]
+        assert receipts.ledger() == {}
+        confirm = tg.call_args.args[2][0][0]['callback_data']
+        tap(confirm)
+        tap(confirm)
+
+        record, = receipts.ledger().values()
+        assert record['project_folder'] == folder
+        assert record['received'] == '400.00'
+        assert record['method'] == receipts.CASH and record['accounting_only'] and record['archived']
+        assert 'invoice' not in record
+        assert receipts.invoice_records(invoice()) == []
+        assert receipts.project_received_fractions({'P26-059': 1700}) == {}
+        assert 'Total en espèces sans facture : 400.00 $' in tg.call_args.args[1]
+        upload.assert_called_once()
+        assert upload.call_args.args[2].endswith('.json')
+        invoice_path.assert_not_called()
+        invoice_picker.assert_not_called()
+        doc.assert_not_called()
 
 
 def test_confirmation_revalidates_balance_against_another_payment(tmp_path):
