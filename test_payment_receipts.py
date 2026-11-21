@@ -14,7 +14,7 @@ import app
 import runtime
 import invoice_control_runtime as control
 import payment_receipt_runtime as receipts
-from payment_receipts import money, parse_amount, invoice_details, payment_balance, validate_payment, receipt_pdf
+from payment_receipts import money, parse_amount, invoice_details, payment_balance, split_payment, receipt_pdf
 from invoice_engine import generate_invoice_pdf
 
 USER=987661234
@@ -127,9 +127,14 @@ def pending():
 def test_decimal_payments_and_overpayments():
     records=[{'amount':'200.00'},{'amount':'100.00'}]
     assert payment_balance(invoice(),records)==(money('300'),money('217.39'))
-    assert validate_payment(invoice(),records,'217.39')==money('217.39')
-    for value in ('217.40','0','-1','NaN','Infinity'):
-        with pytest.raises(ValueError): validate_payment(invoice(),records,value)
+    remaining = money('217.39')
+    assert split_payment('217.39', remaining) == (remaining, remaining, money('0'))
+    assert split_payment('100', remaining) == (money('100'), money('100'), money('0'))
+    assert split_payment('217.40', remaining) == (money('217.40'), remaining, money('0.01'))
+    for value in ('0','-1','NaN','Infinity'):
+        with pytest.raises(ValueError): split_payment(value, remaining)
+    with pytest.raises(ValueError):
+        split_payment('400', money('0'))
     assert parse_amount('1 234,56 $')==money('1234.56')
 
 
@@ -177,9 +182,46 @@ def test_confirm_is_idempotent_after_failed_archive_and_restart(tmp_path):
         assert not app.user_data[str(USER)].get('payment_pending')
 
 
+def test_bot_records_and_archives_overpayment_without_double_counting(tmp_path):
+    p = pending()
+    p['invoice']['total'] = '344.93'
+    uid = str(USER)
+    app.user_data[uid] = {'payment_pending': p, 'payment_waiting': 'amount'}
+    with patch.object(receipts, 'LEDGER', str(tmp_path/'ledger.json')), \
+         patch.object(app, 'ALLOWED_USERS', {USER}), patch.object(app.req, 'post'), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg, patch.object(app, 'tg_doc'), \
+         patch.object(app, 'graph_access_token', return_value='test'), \
+         patch.object(app, 'create_onedrive_folder'), patch.object(app, 'upload_onedrive_path') as upload:
+        receipts.handle_update({'message': {'from': {'id': USER}, 'chat': {'id': USER}, 'text': '400'}})
+        receipts.handle_update({'callback_query': {'id': 'test', 'data': 'pay_method:0',
+            'from': {'id': USER}, 'message': {'chat': {'id': USER}}}})
+        msg = tg.call_args.args[1]
+        assert '400.00 $' in msg and '344.93 $' in msg and '55.07 $' in msg
+        key = p['key']
+        assert receipts.ledger() == {}
+
+        upload.side_effect = RuntimeError('Archive temporarily unavailable')
+        with pytest.raises(RuntimeError):
+            receipts.issue_receipt(USER, uid, key)
+        upload.side_effect = None
+        receipts.issue_receipt(USER, uid, key)
+        receipts.issue_receipt(USER, uid, key)
+        records = receipts.ledger()
+        assert list(records) == [key]
+        record = records[key]
+        assert (record['received'], record['amount'], record['credit']) == ('400.00', '344.93', '55.07')
+        assert record['archived']
+        assert payment_balance(p['invoice'], list(records.values())) == (money('344.93'), money('0'))
+        pdf = PdfReader(io.BytesIO(receipt_pdf(record)))
+        text = ''.join(page.extract_text() for page in pdf.pages)
+        assert 'FACTURE ACQUITTÉE' in text and 'Crédit client non imputé' in text
+        assert all(amount in text for amount in ('400.00', '344.93', '55.07'))
+
+
 def test_confirmation_revalidates_balance_against_another_payment(tmp_path):
     p=pending()
-    p['amount']='517.39'
+    p['amount']='600.00'
+    p['confirmed_balance']='517.39'
     app.user_data[str(USER)]={'payment_pending':p}
     with patch.object(receipts,'LEDGER',str(tmp_path/'ledger.json')):
         receipts.save_ledger({'other':{'invoice':invoice(),'amount':'100.00'}})
