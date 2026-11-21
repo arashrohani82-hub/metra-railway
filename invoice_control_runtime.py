@@ -270,6 +270,28 @@ def _invoice_status(data):
     }
 
 
+def _receipt_summary(data, contract):
+    match = re.match(r"P\d{2}-\d{3}(?!\d)", str(data.get("project_folder") or ""), re.I)
+    if not match:
+        return "💳 Encaissements : à confirmer"
+    code = match.group(0).upper()
+    try:
+        from payment_receipt_runtime import project_received_fractions
+
+        fraction = project_received_fractions({code: contract}).get(code)
+    except Exception:
+        logger.exception("Unable to verify project receipts for %s", code)
+        fraction = None
+    if fraction is None:
+        return "💳 Encaissements : à confirmer"
+    received = round(contract * fraction, 2)
+    remaining = max(0.0, round(contract - received, 2))
+    return (
+        f"💳 Encaissé (HT) : {received:,.2f} $\n"
+        f"📌 Solde du contrat après encaissements (HT) : {remaining:,.2f} $"
+    )
+
+
 def show_invoice_options_control(chat_id, uid):
     uid = str(uid)
     data = legacy.user_data.get(uid, {})
@@ -301,13 +323,14 @@ def show_invoice_options_control(chat_id, uid):
         legacy.tg(chat_id, "⚠️ Le montant du contrat doit être défini avant la facturation.")
         return
 
+    receipts = _receipt_summary(data, status['contract'])
     if status['remaining'] <= 0.01:
         legacy.tg(
             chat_id,
             "✅ Ce projet est déjà facturé à 100 %.\n\n"
-            f"Contrat : {status['contract']:,.2f} $\n"
+            f"Contrat total (HT) : {status['contract']:,.2f} $\n"
             f"Déjà facturé : {status['billed']:,.2f} $ ({status['percent']:g} %)\n"
-            "Reste à facturer : 0.00 $",
+            f"Reste à facturer : 0.00 $\n\n{receipts}",
             [[{'text': '💳 Réception d’un paiement / reçu', 'callback_data': 'pay_start'}]],
         )
         return
@@ -317,9 +340,10 @@ def show_invoice_options_control(chat_id, uid):
         "🧾 Nouvelle facture\n\n"
         f"Projet : {data.get('project_folder')}\n"
         f"Client : {data.get('name') or 'Non indiqué'}\n\n"
-        f"💼 Contrat : {status['contract']:,.2f} $\n"
+        f"💼 Contrat total (HT) : {status['contract']:,.2f} $\n"
         f"📤 Déjà facturé : {status['billed']:,.2f} $ ({status['percent']:g} %)\n"
         f"💰 Reste à facturer : {status['remaining']:,.2f} $\n\n"
+        f"{receipts}\n\n"
         "Quel pourcentage du contrat voulez-vous facturer maintenant ?",
         [
             [
@@ -426,4 +450,3 @@ legacy.show_invoice_options = show_invoice_options_control
 legacy.show_invoice_preview = show_invoice_preview_control
 
 logger.info('CUMULATIVE PROJECT INVOICING CONTROL ACTIVE')
-
