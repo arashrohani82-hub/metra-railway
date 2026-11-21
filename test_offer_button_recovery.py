@@ -96,3 +96,61 @@ def test_ambiguous_base_reference_cannot_choose_a_project():
     records = {ref: {'data': {'odsNum': ref}} for ref in ('ODS26-097-INS', 'ODS26-097-CIV-ABC')}
     with patch.object(app, 'offers_history', {'u': records}), pytest.raises(ValueError, match='Plusieurs offres'):
         recovery._recover_from_xlsx('u', 'ODS26-097')
+
+
+def test_closed_duplicate_disappears_without_hiding_another_suffix():
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = 'Data Novembre'
+    sheet.append(['Description', 'Date', 'Status', 'Price($)', 'Contact'])
+    sheet.append(['ODS26-159-STR-QQB – mandat', '2026-11-18', 'In process', 1500, 'Client'])
+    sheet.append(['ODS26-159-STR-MSV – mandat', '2026-11-18', 'In process', 1500, 'Client'])
+    older = workbook.create_sheet('Data Octobre')
+    older.append(['Description', 'Date', 'Status', 'Price($)', 'Contact'])
+    older.append(['ODS26-159-STR-QQB – copie', '2026-10-01', 'Closed', 1500, 'Client'])
+    output = io.BytesIO()
+    workbook.save(output)
+    assert [row['reference'] for row in followup._read_open_offers(output.getvalue())] == ['ODS26-159-STR-MSV']
+
+
+def test_closing_offer_updates_exact_rows_and_refreshes_the_warm_list():
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = 'Data Novembre'
+    sheet.append(['Description', 'Date', 'Status', 'Price($)'])
+    sheet.append(['ODS26-159-STR-QQB – mandat', '2026-11-18', 'In process', 1500])
+    sheet.append(['ODS26-159-STR-MSV – mandat', '2026-11-18', 'In process', 1500])
+    workbook.create_sheet('Data Octobre').append(['Description', 'Status'])
+    workbook['Data Octobre'].append(['ODS26-159-STR-QQB – copie', 'Hold'])
+    output = io.BytesIO()
+    workbook.save(output)
+    history = {'user': {'ODS26-159-STR-QQB': {'status': 'In process', 'list_sync_pending': True}}}
+    with patch.object(followup, '_open_offers_cache', None), \
+         patch.object(app, 'offers_history', history), \
+         patch.object(app, 'save_offers_history'), \
+         patch.object(app, 'microsoft_email_config', return_value={'EMAIL_SENDER': 'owner'}), \
+         patch.object(app, 'graph_access_token', return_value='token'), \
+         patch.object(app, 'download_onedrive_path', return_value=output.getvalue()) as read, \
+         patch.object(app, 'upload_onedrive_path') as write:
+        assert len(followup.load_open_offers()) == 2
+        followup.update_list_status('ODS26-159-STR-QQB', 'Closed')
+        assert [row['reference'] for row in followup.load_open_offers()] == ['ODS26-159-STR-MSV']
+        assert read.call_count == 2
+        updated = openpyxl.load_workbook(io.BytesIO(write.call_args.args[3]))
+        assert updated['Data Novembre']['C2'].value == 'Closed'
+        assert updated['Data Novembre']['C3'].value == 'In process'
+        assert updated['Data Octobre']['B2'].value == 'Closed'
+        assert history['user']['ODS26-159-STR-QQB']['list_sync_pending'] is False
+
+
+def test_old_close_button_targets_its_offer_rather_than_the_current_session():
+    uid = '987654325'
+    update = {'callback_query': {'data': 'of_status:Closed', 'from': {'id': int(uid)},
+        'message': {'chat': {'id': int(uid)}, 'text': '📬 ODS26-159-STR-QQB\n\nClient : Exemple'}}}
+    session = {uid: {'offer_followup_selected': {'reference': 'ODS26-159-STR-MSV'}}}
+    with patch.object(app, 'ALLOWED_USERS', {int(uid)}), patch.object(app, 'user_data', session), \
+         patch.object(followup, '_ack'), patch.object(followup, 'update_list_status') as write, \
+         patch.object(followup, 'show_open_offers') as show:
+        followup.handle_update_offer_followup(update)
+    write.assert_called_once_with('ODS26-159-STR-QQB', 'Closed')
+    assert 'ODS26-159-STR-QQB' in show.call_args.args[3]

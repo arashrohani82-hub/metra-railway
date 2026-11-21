@@ -143,50 +143,41 @@ def show_offer_with_potential(chat_id, uid):
         [{"text": "🎯 Définir le potentiel", "callback_data": "pot_menu"}],
         [{"text": "✉️ Préparer un courriel de suivi", "callback_data": "of_email_menu"}],
         [{"text": "✅ Relance effectuée", "callback_data": "of_mark"}],
-        [
-            {"text": "⏸ Hold", "callback_data": "of_status:Hold"},
-            {"text": "🔄 In process", "callback_data": "of_status:In process"},
-        ],
-        [
-            {"text": "❌ Refused", "callback_data": "of_status:Refused"},
-            {"text": "🔒 Closed", "callback_data": "of_status:Closed"},
-        ],
+        *followup._status_buttons(offer["reference"]),
         [{"text": "📁 Acceptée → projet", "callback_data": f"of_convert:{offer['reference']}"}],
         [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
     legacy.tg(chat_id, followup._offer_text(offer, state) + extra, buttons)
 
 
-def show_open_offers_priority(chat_id, uid, month_key):
+def show_open_offers_priority(chat_id, uid, month_key, notice=""):
+    offers = followup.offers_for_month(month_key)
+    if not offers:
+        return followup.show_offer_months(chat_id, uid, notice)
     session = followup._session(uid)
-    offers = (session.get("offer_followup_months") or {}).get(month_key)
-    if offers is None:
-        followup.show_offer_months(chat_id, uid)
-        return
-
+    states = STORE.load().get("offers") or {}
+    today = followup.local_now().date()
     ranked = []
     for offer in offers:
-        state = _state(offer["reference"])
-        result = potential_score(offer, state)
+        result = potential_score(offer, states.get(offer["reference"], {}))
         ranked.append((result["score"], result["level"], offer))
     ranked.sort(key=lambda item: item[0], reverse=True)
 
-    choices, rows = {}, []
-    for index, (score, level, offer) in enumerate(ranked[:40], start=1):
-        choices[str(index)] = offer
-        stage = followup.followup_stage(offer["date"], followup.local_now().date())
+    rows = []
+    for score, level, offer in ranked[:40]:
+        stage = followup.followup_stage(offer["date"], today)
         icon = LEVELS[level][0]
         label = f"{icon} {score} · {stage['days']}j · {offer['reference']} · {offer['contact'] or 'Client'}"
-        rows.append([{"text": label[:62], "callback_data": f"of_pick:{index}"}])
+        rows.append([{"text": label[:62], "callback_data": f"of_pick:{offer['reference']}"}])
 
-    session["offer_followup_choices"] = choices
     session["offer_followup_month"] = month_key
     session.pop("offer_followup_selected", None)
     followup._save_session(uid, session)
     rows.append([{"text": "⬅️ Choisir un autre mois", "callback_data": "of_months"}])
+    prefix = f"{notice}\n\n" if notice else ""
     legacy.tg(
         chat_id,
-        f"🎯 Offres du mois {month_key} — classées par potentiel\n\n"
+        prefix + f"🎯 Offres du mois {month_key} — classées par potentiel\n\n"
         "🔥 priorité haute · 🟡 moyenne · ⚪ basse\n"
         f"{len(offers)} offre(s).",
         rows,

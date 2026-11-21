@@ -78,90 +78,161 @@ def _amount(value):
         return 0.0
 
 
-def load_open_offers():
-    config = legacy.microsoft_email_config()
-    token = legacy.graph_access_token()
-    content = legacy.download_onedrive_path(token, config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
-    workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-    offers = []
-    for ws in workbook.worksheets:
-        if not str(ws.title).lower().startswith("data "):
-            continue
-        headers = {str(cell.value or "").strip(): cell.column for cell in ws[1] if cell.value is not None}
-        required = ("Description", "Date", "Status", "Price($)")
-        if any(name not in headers for name in required):
-            continue
-        for row in range(2, ws.max_row + 1):
-            description = str(ws.cell(row, headers["Description"]).value or "").strip()
-            if not description:
+_open_offers_lock = threading.Lock()
+_open_offers_cache = None
+_open_offers_checked_at = 0.0
+_OPEN_OFFERS_TTL = 90
+
+
+def _read_open_offers(content):
+    workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    offers = {}
+    terminal = set()
+    try:
+        for ws in workbook.worksheets:
+            if not ws.title.strip().lower().startswith("data "):
                 continue
-            raw_date = ws.cell(row, headers["Date"]).value
-            offer = {
-                "reference": _reference(description),
-                "description": description,
-                "date": raw_date.isoformat() if hasattr(raw_date, "isoformat") else str(raw_date or ""),
-                "status": normalized_status(ws.cell(row, headers["Status"]).value),
-                "price": _amount(ws.cell(row, headers["Price($)"]).value),
-                "contact": str(ws.cell(row, headers.get("Contact", 0)).value or "").strip() if headers.get("Contact") else "",
-                "email": str(ws.cell(row, headers.get("Email", 0)).value or "").strip() if headers.get("Email") else "",
-                "source": str(ws.cell(row, headers.get("Source", 0)).value or "").strip() if headers.get("Source") else "",
-                "sheet": ws.title,
-                "row": row,
-            }
-            if is_open_offer(offer):
-                offers.append(offer)
-    offers.sort(key=lambda item: (followup_stage(item["date"], local_now().date())["days"], item["reference"]), reverse=True)
-    return offers
+            rows = iter(ws.values)
+            headers = {str(value or "").strip(): index for index, value in enumerate(next(rows, ()))}
+            if not {"Description", "Date", "Status", "Price($)"} <= headers.keys():
+                continue
+            for number, row in enumerate(rows, start=2):
+                description = str(row[headers["Description"]] or "").strip()
+                if not description:
+                    continue
+                reference = _reference(description)
+                status = normalized_status(row[headers["Status"]])
+                if status in {"Accept", "Closed", "Refused"}:
+                    terminal.add(reference)
+                    continue
+                if not is_open_offer({"status": status}):
+                    continue
+                raw_date = row[headers["Date"]]
+                offer = {
+                    "reference": reference,
+                    "description": description,
+                    "date": raw_date.isoformat() if hasattr(raw_date, "isoformat") else str(raw_date or ""),
+                    "status": status,
+                    "price": _amount(row[headers["Price($)"]]),
+                    "sheet": ws.title,
+                    "row": number,
+                }
+                for label in ("Contact", "Email", "Source"):
+                    offer[label.lower()] = str(row[headers[label]] or "").strip() if label in headers else ""
+                if reference not in offers or offer["date"] >= offers[reference]["date"]:
+                    offers[reference] = offer
+    finally:
+        workbook.close()
+    today = local_now().date()
+    return sorted(
+        (offer for ref, offer in offers.items() if ref not in terminal),
+        key=lambda offer: (followup_stage(offer["date"], today)["days"], offer["reference"]),
+        reverse=True,
+    )
+
+
+def load_open_offers():
+    global _open_offers_cache, _open_offers_checked_at
+    with _open_offers_lock:
+        if _open_offers_cache is None or time.monotonic() - _open_offers_checked_at >= _OPEN_OFFERS_TTL:
+            config = legacy.microsoft_email_config()
+            token = legacy.graph_access_token()
+            content = legacy.download_onedrive_path(token, config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
+            _open_offers_cache = _read_open_offers(content)
+            _open_offers_checked_at = time.monotonic()
+        return list(_open_offers_cache)
+
+
+def _apply_cached_offer_status(reference, status):
+    global _open_offers_cache
+    with _open_offers_lock:
+        if _open_offers_cache is None:
+            return
+        if not is_open_offer({"status": status}):
+            _open_offers_cache = [offer for offer in _open_offers_cache if offer["reference"] != reference]
+        elif any(offer["reference"] == reference for offer in _open_offers_cache):
+            _open_offers_cache = [
+                dict(offer, status=status) if offer["reference"] == reference else offer
+                for offer in _open_offers_cache
+            ]
+        else:
+            _open_offers_cache = None
+
+
+def _invalidate_open_offers():
+    global _open_offers_cache
+    with _open_offers_lock:
+        _open_offers_cache = None
+
+
+_sync_ods_list = legacy.sync_ods_list
+
+
+def _sync_and_refresh_offers(*args, **kwargs):
+    result = _sync_ods_list(*args, **kwargs)
+    _invalidate_open_offers()
+    return result
+
+
+legacy.sync_ods_list = _sync_and_refresh_offers
 
 
 def update_list_status(reference, status):
     if status not in {"Hold", "Refused", "Closed", "In process"}:
         raise ValueError("statut non valide")
+    reference = ods_reference(reference)
+    if not reference:
+        raise ValueError("numéro d’offre non valide")
     with legacy.ods_list_lock:
         config = legacy.microsoft_email_config()
         token = legacy.graph_access_token()
         owner = config["EMAIL_SENDER"]
-        content = legacy.download_onedrive_path(token, owner, legacy.ODS_LIST_PATH)
-        workbook = openpyxl.load_workbook(io.BytesIO(content))
-        found = False
-        for ws in workbook.worksheets:
-            headers = {str(cell.value or "").strip(): cell.column for cell in ws[1] if cell.value is not None}
-            if "Description" not in headers or "Status" not in headers:
-                continue
-            for row in range(2, ws.max_row + 1):
-                description = str(ws.cell(row, headers["Description"]).value or "")
-                if reference.upper() in description.upper():
-                    ws.cell(row, headers["Status"]).value = status
-                    found = True
-                    break
-            if found:
-                break
-        if not found:
-            raise RuntimeError("offre introuvable dans List.xlsx")
-        output = io.BytesIO()
-        workbook.save(output)
-        payload = output.getvalue()
-        # Excel/OneDrive can briefly lock List.xlsx (Graph returns HTTP 423).
-        # Retry the status write instead of forcing the user to repeat the action.
-        last_error = None
         for attempt in range(4):
+            content = legacy.download_onedrive_path(token, owner, legacy.ODS_LIST_PATH)
+            workbook = openpyxl.load_workbook(io.BytesIO(content))
+            found = False
+            try:
+                for ws in workbook.worksheets:
+                    if not ws.title.strip().lower().startswith("data "):
+                        continue
+                    headers = {str(cell.value or "").strip(): cell.column for cell in ws[1] if cell.value is not None}
+                    if "Description" not in headers or "Status" not in headers:
+                        continue
+                    for row in range(2, ws.max_row + 1):
+                        if ods_reference(ws.cell(row, headers["Description"]).value) == reference:
+                            ws.cell(row, headers["Status"]).value = status
+                            found = True
+                if not found:
+                    raise RuntimeError("offre introuvable dans List.xlsx")
+                output = io.BytesIO()
+                workbook.save(output)
+            finally:
+                workbook.close()
             try:
                 legacy.upload_onedrive_path(
-                    token, owner, legacy.ODS_LIST_PATH, payload,
+                    token, owner, legacy.ODS_LIST_PATH, output.getvalue(),
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-                last_error = None
                 break
-            except RuntimeError as exc:
-                last_error = exc
+            except legacy.OneDriveUploadError as exc:
+                if exc.status_code != 423:
+                    raise
                 if attempt == 3:
-                    break
+                    raise RuntimeError(
+                        "List.xlsx est temporairement verrouillé par OneDrive/Excel. "
+                        "Fermez le fichier s’il est ouvert et réessayez dans quelques secondes."
+                    ) from exc
                 time.sleep(2 ** attempt)
-        if last_error:
-            raise RuntimeError(
-                "List.xlsx est temporairement verrouillé par OneDrive/Excel. "
-                "Fermez le fichier s’il est ouvert et réessayez dans quelques secondes."
-            ) from last_error
+        _apply_cached_offer_status(reference, status)
+        # Keep retry/reconciliation jobs from restoring the previous status.
+        changed = False
+        for records in list(legacy.offers_history.values()):
+            for key, record in list(records.items()):
+                if ods_reference((record.get("data") or {}).get("odsNum") or key) == reference:
+                    record.update(status=status, list_sync_status=status, list_sync_pending=False)
+                    changed = True
+        if changed:
+            legacy.save_offers_history()
 
 
 def update_list_email(reference, email_address):
@@ -178,7 +249,7 @@ def update_list_email(reference, email_address):
                 continue
             for row in range(2, ws.max_row + 1):
                 description = str(ws.cell(row, headers["Description"]).value or "")
-                if reference.upper() in description.upper():
+                if ods_reference(description) == ods_reference(reference):
                     ws.cell(row, headers["Email"]).value = email_address
                     found = True
                     break
@@ -192,6 +263,7 @@ def update_list_email(reference, email_address):
             token, owner, legacy.ODS_LIST_PATH, output.getvalue(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+        _invalidate_open_offers()
 
 
 def _email_from_text(value):
@@ -329,7 +401,7 @@ def _month_key(value):
     return parsed.strftime("%Y-%m") if parsed else "unknown"
 
 
-def show_offer_months(chat_id, uid):
+def show_offer_months(chat_id, uid, notice=''):
     try:
         offers = load_open_offers()
     except Exception as exc:
@@ -340,7 +412,8 @@ def show_offer_months(chat_id, uid):
     for offer in offers:
         months.setdefault(_month_key(offer.get("date")), []).append(offer)
     session = _session(uid)
-    session["offer_followup_months"] = months
+    session.pop("offer_followup_months", None)
+    session.pop("offer_followup_choices", None)
     session.pop("offer_followup_month", None)
     session.pop("offer_followup_selected", None)
     _save_session(uid, session)
@@ -357,32 +430,34 @@ def show_offer_months(chat_id, uid):
             year, month = key.split("-")
             label = f"{month_names.get(int(month), month)} {year}"
         rows.append([{"text": f"📅 {label} — {len(months[key])} offre(s)", "callback_data": f"of_month:{key}"}])
+    prefix = f"{notice}\n\n" if notice else ""
     if not rows:
-        legacy.tg(chat_id, "✅ Aucune offre ouverte dans List.xlsx.", reply_markup=followup_main_menu())
+        legacy.tg(chat_id, prefix + "✅ Aucune offre ouverte dans List.xlsx.", reply_markup=followup_main_menu())
         return
-    legacy.tg(chat_id, "📬 Suivi des offres ouvertes\n\nChoisissez le mois :", rows)
+    legacy.tg(chat_id, prefix + "📬 Suivi des offres ouvertes\n\nChoisissez le mois :", rows)
 
 
-def show_open_offers(chat_id, uid, month_key):
-    session = _session(uid)
-    offers = (session.get("offer_followup_months") or {}).get(month_key)
-    if offers is None:
-        show_offer_months(chat_id, uid)
-        return
-    choices = {}
+def offers_for_month(month_key):
+    return [offer for offer in load_open_offers() if _month_key(offer["date"]) == month_key]
+
+
+def show_open_offers(chat_id, uid, month_key, notice=""):
+    offers = offers_for_month(month_key)
+    if not offers:
+        return show_offer_months(chat_id, uid, notice)
     rows = []
-    for index, offer in enumerate(offers[:40], start=1):
-        choices[str(index)] = offer
+    for offer in offers[:40]:
         stage = followup_stage(offer["date"], local_now().date())
         warning = "🔴 " if stage["days"] >= 60 else "🟠 " if stage["days"] >= 30 else "⚪ "
         label = f"{warning}{stage['days']}j · {offer['reference']} · {offer['contact'] or 'Client'}"
         rows.append([{"text": label[:62], "callback_data": f"of_pick:{offer['reference']}"}])
-    session["offer_followup_choices"] = choices
+    session = _session(uid)
     session["offer_followup_month"] = month_key
     session.pop("offer_followup_selected", None)
     _save_session(uid, session)
     rows.append([{"text": "⬅️ Choisir un autre mois", "callback_data": "of_months"}])
-    legacy.tg(chat_id, f"📬 Offres du mois {month_key}\n\n{len(offers)} offre(s). Choisissez une offre :", rows)
+    prefix = f"{notice}\n\n" if notice else ""
+    legacy.tg(chat_id, prefix + f"📬 Offres du mois {month_key}\n\n{len(offers)} offre(s). Choisissez une offre :", rows)
 
 
 def _selected(uid):
@@ -413,6 +488,17 @@ def _offer_text(offer, state):
     )
 
 
+def _status_buttons(reference):
+    return [
+        [{"text": label, "callback_data": f"of_status:{status}:{reference}"}
+         for label, status in row]
+        for row in (
+            (("⏸ Hold", "Hold"), ("🔄 In process", "In process")),
+            (("❌ Refused", "Refused"), ("🔒 Closed", "Closed")),
+        )
+    ]
+
+
 def show_offer(chat_id, uid):
     offer = _selected(uid)
     if not offer:
@@ -422,14 +508,7 @@ def show_offer(chat_id, uid):
     buttons = [
         [{"text": "✉️ Préparer un courriel de suivi", "callback_data": "of_email_menu"}],
         [{"text": "✅ Relance effectuée", "callback_data": "of_mark"}],
-        [
-            {"text": "⏸ Hold", "callback_data": "of_status:Hold"},
-            {"text": "🔄 In process", "callback_data": "of_status:In process"},
-        ],
-        [
-            {"text": "❌ Refused", "callback_data": "of_status:Refused"},
-            {"text": "🔒 Closed", "callback_data": "of_status:Closed"},
-        ],
+        *_status_buttons(offer["reference"]),
         [{"text": "📁 Acceptée → projet", "callback_data": f"of_convert:{offer['reference']}"}],
         [{"text": "⬅️ Offres de ce mois", "callback_data": "of_back"}],
     ]
@@ -664,7 +743,7 @@ def handle_update_offer_followup(data):
     if msg and actor_id in legacy.ALLOWED_USERS:
         uid = str(actor_id)
         session = _session(uid)
-        if session.get("waiting_offer_followup_email") and msg.get("text"):
+        if session.get("waiting_offer_followup_email") and msg.get("text") and msg["text"].strip() != "📬 Suivi offres":
             email_address = legacy.valid_client_email(str(msg.get("text") or "").strip())
             if not email_address:
                 legacy.tg(chat_id, "❌ Adresse invalide. Exemple : client@example.com")
@@ -688,7 +767,9 @@ def handle_update_offer_followup(data):
         if actor_id not in legacy.ALLOWED_USERS:
             legacy.tg(chat_id, "⛔ Ce bot est privé.")
             return
-        legacy.executor.submit(show_offer_months, chat_id, str(actor_id))
+        session.pop("waiting_offer_followup_email", None)
+        session.pop("pending_offer_followup_email", None)
+        legacy.executor.submit(show_offer_months, chat_id, uid)
         return
     cdata = str(callback.get("data") or "")
     if cdata.startswith("of_"):
@@ -706,15 +787,12 @@ def handle_update_offer_followup(data):
             choice = cdata.split(":", 1)[1]
             session = _session(uid)
             reference = _choice_reference(callback, choice)
-            offers = [offer for month in (session.get("offer_followup_months") or {}).values() for offer in month]
-            candidates = [offer for offer in offers if offer.get("reference") == reference] if reference else []
-            if not candidates and reference:
-                candidates = [offer for offer in load_open_offers() if offer.get("reference") == reference]
-            offer = candidates[0] if len(candidates) == 1 else None
+            offer = next((dict(offer) for offer in load_open_offers() if offer["reference"] == reference), None) if reference else None
             if not offer:
                 legacy.tg(chat_id, "❌ Liste expirée. Ouvrez de nouveau Suivi offres.")
                 return
             session["offer_followup_selected"] = offer
+            session["offer_followup_month"] = _month_key(offer.get("date"))
             _save_session(uid, session)
             show_offer(chat_id, uid)
         elif cdata == "of_mark":
@@ -747,21 +825,25 @@ def handle_update_offer_followup(data):
         elif cdata == "of_detail":
             show_offer(chat_id, uid)
         elif cdata.startswith("of_status:"):
-            offer = _selected(uid)
-            status = cdata.split(":", 1)[1]
-            if not offer:
-                legacy.tg(chat_id, "❌ Offre introuvable.")
+            _, status, *references = cdata.split(":", 2)
+            reference = references[0] if references else _message_reference(callback)
+            if not reference or ods_reference(reference) != reference:
+                legacy.tg(chat_id, "❌ Offre introuvable. Ouvrez de nouveau Suivi offres.")
                 return
+            selected = _selected(uid) or {}
+            month_key = _month_key(selected.get("date")) if selected.get("reference") == reference else ""
             try:
-                update_list_status(offer["reference"], status)
-                offer["status"] = status
-                session = _session(uid)
-                session["offer_followup_selected"] = offer
-                _save_session(uid, session)
-                legacy.tg(chat_id, f"✅ List.xlsx mis à jour : {status}")
-                show_offer(chat_id, uid)
+                update_list_status(reference, status)
             except Exception as exc:
+                logger.exception("Offer follow-up status write failed")
                 legacy.tg(chat_id, f"❌ Mise à jour impossible : {exc}")
+                return
+            notice = f"✅ {reference} · {status}"
+            try:
+                show_open_offers(chat_id, uid, month_key, notice)
+            except Exception:
+                logger.exception("Open offers reload failed after status write")
+                legacy.tg(chat_id, notice)
         elif cdata.startswith("of_convert"):
             reference = cdata.split(":", 1)[1] if cdata.startswith("of_convert:") else _message_reference(callback)
             if not reference or ods_reference(reference) != reference.upper():
