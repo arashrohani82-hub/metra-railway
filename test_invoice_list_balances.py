@@ -51,9 +51,21 @@ def test_new_invoice_all_projects_keeps_one_column():
     assert len(buttons[0]) == 1
 
 
-def test_known_contract_is_shown_without_counting_unconfirmed_payments():
+def test_unconfirmed_payments_add_an_explicit_upper_bound():
     _, text, buttons = render([{'name': 'P26-060-LPA', 'contract': 3500, 'received_fraction': None}])
-    assert 'Reste à recevoir : 0,00 $' in text
-    assert 'Contrats avec encaissements non confirmés : 3 500,00 $' in text
-    assert buttons[0][0]['text'].startswith('P26-060 | Reçu ?')
-    assert buttons[0][1]['text'] == 'Contrat 3 500 $'
+    assert 'Solde vérifié : 0,00 $' in text
+    assert 'Solde max, paiements à vérifier inclus : 3 500,00 $ HT' in text
+    assert buttons[0][0]['text'].startswith('P26-060 | À vérif.')
+    assert buttons[0][1]['text'] == 'Max 3 500 $'
+
+
+def test_maximum_combines_verified_balances_and_contracts_to_verify():
+    _, text, buttons = render([
+        {'name': 'P26-060-LPA', 'contract': 3500, 'received_fraction': None},
+        {'name': 'P26-046-STR', 'contract': 2800, 'received_fraction': .25},
+        {'name': 'P26-043-INS', 'contract': None, 'received_fraction': None},
+    ])
+    assert 'Solde vérifié : 2 100,00 $' in text
+    assert 'Solde max, paiements à vérifier inclus : 5 600,00 $ HT' in text
+    assert '1 projet(s) hors total' in text
+    assert [row[1]['text'] for row in buttons[:-1]] == ['Max 3 500 $', '2 100 $', 'Contrat à confirmer']

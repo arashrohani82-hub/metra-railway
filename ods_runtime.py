@@ -430,7 +430,7 @@ def _project_payment_label(item, compact=False):
     prefix = f"Reçu {fraction * 100:.1f}".rstrip("0").rstrip(".") + " %" if fraction is not None else "Reçu n/d"
     name = str(item.get("name") or "").strip()
     if compact:
-        percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "Reçu ?"
+        percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "À vérif."
         label = f"{name[:7]} | {percent} | {name[7:].lstrip('-_')}"
     else:
         label = f"{prefix} | {name}"
@@ -566,9 +566,17 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
         projects = onedrive_projects()
         if only_outstanding:
             projects = projects_awaiting_settlement(projects, include_financials=True)
-            from project_capacity_runtime import capacity, amount
+            from project_capacity_runtime import amount, capacity, cents
             report = capacity(projects)
             balances = {row['code']: row['remaining'] for row in report['projects']}
+            provisional = {}
+            missing_contract = 0
+            for project in report['unknown']:
+                contract = _contract_amount(project.get("contract"))
+                if contract is None:
+                    missing_contract += 1
+                else:
+                    provisional[_project_number(project.get("name"))] = cents(contract)
     except Exception as exc:
         logger.exception("Unable to list OneDrive projects for invoicing")
         legacy.tg(chat_id, f"❌ Impossible de lire les projets OneDrive : {exc}")
@@ -588,11 +596,12 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             "callback_data": f"od_invoice_project:{index}",
         }]
         if only_outstanding:
-            balance = balances.get(folder[:7].upper())
+            code = _project_number(folder)
+            balance = balances.get(code)
             if balance is not None:
                 label = amount(balance).replace(',00 $', ' $')
-            elif item.get("contract") is not None:
-                label = f"Contrat {amount(item['contract'])}".replace(',00 $', ' $')
+            elif code in provisional:
+                label = f"Max {amount(provisional[code])}".replace(',00 $', ' $')
             else:
                 label = "Contrat à confirmer"
             project_row.append({'text': label, 'callback_data': f'od_invoice_project:{index}'})
@@ -603,18 +612,19 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     legacy.user_data[uid] = session
     legacy.save_user_data()
     if only_outstanding:
+        balance_label = "Solde vérifié" if provisional else "Reste à recevoir"
         text = ("🧾 Projets à encaisser\n\n"
-                f"💰 Reste à recevoir : {amount(report['total'])}\n"
+                f"💰 {balance_label} : {amount(report['total'])}\n"
                 f"💵 Avec taxes ≈ {amount(report['tax_included'])}\n"
                 f"📁 {len(report['projects'])} projet(s)\n\n"
                 "Les soldes ci-dessous sont avant taxes.\n"
                 "Touchez un projet pour l’ouvrir.")
-        if report['unknown']:
-            pending = sum(p.get("contract") or 0 for p in report["unknown"])
-            text += f"\n⚠️ {len(report['unknown'])} projet(s) hors total, à vérifier."
-            if pending:
-                text += (f"\nContrats avec encaissements non confirmés : {amount(pending)}. "
-                         "Ces montants sont exclus du solde total.")
+        if provisional:
+            maximum = report['total'] + sum(provisional.values())
+            text += (f"\n\nSolde max, paiements à vérifier inclus : {amount(maximum)} HT. "
+                     f"Les lignes Max concernent {len(provisional)} projet(s) dont les encaissements restent à confirmer.")
+        if missing_contract:
+            text += f"\n⚠️ {missing_contract} projet(s) hors total : montant du contrat à confirmer."
     else:
         text = "🧾 Nouvelle facture — tous les projets"
     if only_outstanding:
