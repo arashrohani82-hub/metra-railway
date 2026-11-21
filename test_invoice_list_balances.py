@@ -19,14 +19,14 @@ def render(items, outstanding=True):
 
 def test_same_project_opens_from_either_column_and_total_uses_received_fraction():
     _, text, buttons = render([
-        {'name': 'P26-049-TMN-Inspection', 'contract': 1800, 'received_fraction': .25},
+        {'name': 'P26-049-TMN-Inspection', 'client_name': 'Marie Dupont', 'contract': 1800, 'received_fraction': .25},
         {'name': 'P26-042-FIG-Fenêtres', 'contract': 800, 'received_fraction': .9}])
     assert '1 430,00 $' in text
     assert '1 644,14 $' in text
     assert '<b>' not in text and '</b>' not in text
     assert 'Colonne gauche' not in text
     assert len(text) < 250
-    assert buttons[0][0]['text'].startswith('P26-049 | 25% | TMN')
+    assert buttons[0][0]['text'] == '049-TMN · Marie Dupont · 25% · Inspection'
     assert buttons[0][1]['text'] == '1 350 $'
     assert buttons[1][1]['text'] == '80 $'
     assert buttons[0][0]['callback_data'] == buttons[0][1]['callback_data']
@@ -55,7 +55,7 @@ def test_unconfirmed_payments_add_an_explicit_upper_bound():
     _, text, buttons = render([{'name': 'P26-060-LPA', 'contract': 3500, 'received_fraction': None}])
     assert 'Solde vérifié : 0,00 $' in text
     assert 'Solde max, paiements à vérifier inclus : 3 500,00 $ HT' in text
-    assert buttons[0][0]['text'].startswith('P26-060 | À vérif.')
+    assert buttons[0][0]['text'].startswith('060-LPA · Client n/d · À vérif.')
     assert buttons[0][1]['text'] == 'Max 3 500 $'
 
 

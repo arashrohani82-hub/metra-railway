@@ -425,15 +425,25 @@ def _received_fraction(value):
     return fraction if 0 <= fraction <= 1 else None
 
 
-def _project_payment_label(item, compact=False):
+def _project_payment_label(item, compact=False, *, show_payment=True):
     fraction = item.get("received_fraction")
-    prefix = f"Reçu {fraction * 100:.1f}".rstrip("0").rstrip(".") + " %" if fraction is not None else "Reçu n/d"
-    name = str(item.get("name") or "").strip()
+    folder = str(item.get("name") or "").strip()
     if compact:
-        percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "À vérif."
-        label = f"{name[:7]} | {percent} | {name[7:].lstrip('-_')}"
+        match = re.match(r"^(P\d{2}-\d{3})(?:-([A-Z0-9]{3})(?=[-_]|$))?", folder)
+        if match:
+            parts = [match.group(0).removeprefix("P26-"), item.get("client_name") or "Client n/d"]
+            if show_payment:
+                percent = f"{fraction * 100:.1f}".rstrip("0").rstrip(".") + "%" if fraction is not None else "À vérif."
+                parts.append(percent)
+            description = folder[match.end():].lstrip("-_").strip()
+            if description:
+                parts.append(description)
+            label = " · ".join(parts)
+        else:
+            label = folder
     else:
-        label = f"{prefix} | {name}"
+        prefix = f"Reçu {fraction * 100:.1f}".rstrip("0").rstrip(".") + " %" if fraction is not None else "Reçu n/d"
+        label = f"{prefix} | {folder}"
     return label if len(label) <= 62 else label[:61] + "…"
 
 
@@ -452,8 +462,9 @@ def _contract_amount(value):
     return round(amount, 2) if math.isfinite(amount) and amount > 0 else None
 
 
-def _accepted_contract_amounts(workbook, wanted):
+def _accepted_project_info(workbook, wanted):
     amounts = {}
+    clients = {}
     for sheet in workbook.worksheets:
         rows = iter(sheet.iter_rows(values_only=True))
         headers = [str(value or "").strip().casefold() for value in next(rows, ())]
@@ -461,12 +472,43 @@ def _accepted_contract_amounts(workbook, wanted):
             continue
         project_col = headers.index("project code")
         price_col = headers.index("accepted price")
+        contact_col = headers.index("contact") if "contact" in headers else None
         for row in rows:
             code = _project_number(row[project_col])
             price = row[price_col]
-            if code in wanted and price not in (None, ""):
-                amounts.setdefault(code, set()).add(_contract_amount(price))
-    return amounts
+            if code not in wanted or price in (None, ""):
+                continue
+            amount = _contract_amount(price)
+            amounts.setdefault(code, set()).add(amount)
+            if amount and contact_col is not None:
+                name = legacy.normalize_client_name(row[contact_col])
+                if name:
+                    clients.setdefault(code, set()).add(name)
+    return amounts, clients
+
+
+def _converted_project_info(projects):
+    folders = {str(item.get("name") or ""): _project_number(item.get("name")) for item in projects}
+    amounts, clients = {}, {}
+    for records in legacy.offers_history.values():
+        for record in (records or {}).values():
+            data = record.get("data") or {}
+            folder = record.get("project_folder") or data.get("project_folder")
+            code = folders.get(folder)
+            if not code or not (record.get("converted") or record.get("status") == "Accept"):
+                continue
+            amounts.setdefault(code, set()).add(_contract_amount(data.get("price")))
+            name = legacy.normalize_client_name(data.get("name"))
+            if name:
+                clients.setdefault(code, set()).add(name)
+    return amounts, clients
+
+
+def _project_clients(registered, converted):
+    clients = {}
+    for source in (registered, converted):
+        clients.update({code: next(iter(names)) for code, names in source.items() if len(names) == 1})
+    return clients
 
 
 def projects_awaiting_settlement(projects, include_financials=False):
@@ -519,25 +561,14 @@ def projects_awaiting_settlement(projects, include_financials=False):
             if status & closed or fraction == 1:
                 excluded.add(code)
         missing_contracts = project_codes - contracts.keys() - excluded
-        if missing_contracts:
-            accepted = _accepted_contract_amounts(workbook, missing_contracts)
-            for code, amounts in accepted.items():
-                if len(amounts) == 1 and None not in amounts:
-                    contracts[code] = next(iter(amounts))
-
-            # Conversion history can recover contracts from before Project Code
-            # was added to the accepted-offer register.
-            folders = {str(item.get("name") or ""): _project_number(item.get("name")) for item in projects}
-            history_amounts = {}
-            for records in legacy.offers_history.values():
-                for record in (records or {}).values():
-                    data = record.get("data") or {}
-                    folder = record.get("project_folder") or data.get("project_folder")
-                    code = folders.get(folder)
-                    if (code in missing_contracts and code not in accepted
-                            and (record.get("converted") or record.get("status") == "Accept")):
-                        history_amounts.setdefault(code, set()).add(_contract_amount(data.get("price")))
-            for code, amounts in history_amounts.items():
+        clients = {}
+        if missing_contracts or include_financials:
+            wanted = project_codes - excluded if include_financials else missing_contracts
+            accepted, registered_clients = _accepted_project_info(workbook, wanted)
+            history_amounts, converted_clients = _converted_project_info(projects)
+            clients = _project_clients(registered_clients, converted_clients)
+            for code in missing_contracts:
+                amounts = accepted.get(code, history_amounts.get(code, set()))
                 if len(amounts) == 1 and None not in amounts:
                     contracts[code] = next(iter(amounts))
         try:
@@ -554,10 +585,31 @@ def projects_awaiting_settlement(projects, include_financials=False):
         if include_financials:
             for item in result:
                 code = _project_number(item.get("name"))
-                item.update(contract=contracts.get(code), physical_fraction=physical.get(code))
+                item.update(contract=contracts.get(code), physical_fraction=physical.get(code),
+                            client_name=clients.get(code) or item.get("client_name"))
         return result
     finally:
         workbook.close()
+
+
+def _invoice_clients_for_all_projects(projects):
+    _, converted = _converted_project_info(projects)
+    registered = {}
+    try:
+        config = legacy.microsoft_email_config()
+        content = legacy.download_onedrive_path(
+            legacy.graph_access_token(), config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
+        workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        try:
+            codes = {_project_number(item.get("name")) for item in projects} - {None}
+            _, registered = _accepted_project_info(workbook, codes)
+        finally:
+            workbook.close()
+    except Exception:
+        logger.warning("Accepted offer contacts unavailable for all-project invoice picker")
+    clients = _project_clients(registered, converted)
+    return [{**item, "client_name": clients.get(_project_number(item.get("name"))) or item.get("client_name")}
+            for item in projects]
 
 
 def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
@@ -577,6 +629,8 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
                     missing_contract += 1
                 else:
                     provisional[_project_number(project.get("name"))] = cents(contract)
+        else:
+            projects = _invoice_clients_for_all_projects(projects)
     except Exception as exc:
         logger.exception("Unable to list OneDrive projects for invoicing")
         legacy.tg(chat_id, f"❌ Impossible de lire les projets OneDrive : {exc}")
@@ -592,7 +646,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             "web_url": item.get("webUrl") or "",
         }
         project_row = [{
-            "text": _project_payment_label(item, compact=True) if only_outstanding else folder[:62],
+            "text": _project_payment_label(item, compact=True, show_payment=only_outstanding),
             "callback_data": f"od_invoice_project:{index}",
         }]
         if only_outstanding:
@@ -649,7 +703,8 @@ def _registered_contract_price(folder):
         legacy.graph_access_token(), config["EMAIL_SENDER"], legacy.ODS_LIST_PATH)
     workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     try:
-        amounts = _accepted_contract_amounts(workbook, {project_code}).get(project_code, set())
+        amounts_by_code, _ = _accepted_project_info(workbook, {project_code})
+        amounts = amounts_by_code.get(project_code, set())
         if None in amounts:
             raise ValueError("Montant accepté invalide dans List.xlsx")
         if len(amounts) > 1:
