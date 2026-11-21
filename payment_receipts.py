@@ -59,12 +59,12 @@ def payment_balance(invoice, records):
     return paid, money(invoice['total']) - paid
 
 
-def validate_payment(invoice, records, amount):
-    amount = money(amount)
-    _, remaining = payment_balance(invoice, records)
-    if amount <= 0 or amount > remaining:
+def split_payment(amount, remaining):
+    received = money(amount)
+    if received <= 0 or remaining <= 0:
         raise ValueError(f'Montant reçu invalide. Solde disponible : {remaining:.2f} $')
-    return amount
+    applied = min(received, remaining)
+    return received, applied, received - applied
 
 
 def receipt_pdf(record):
@@ -92,19 +92,26 @@ def receipt_pdf(record):
              Spacer(1,.35*cm), p('<b>Projet :</b> '+escape(record['project_folder'])),
              p('<b>Facture :</b> '+escape(invoice['filename'])),
              p('<b>Mode de paiement :</b> '+escape(record['method'])), Spacer(1,.55*cm)]
+    applied = money(record['amount'])
+    received = money(record.get('received', applied))
+    credit = money(record.get('credit', 0))
     rows = [['Total de la facture (taxes incluses)', f"{money(invoice['total']):,.2f} $"],
-            ['Montant reçu pour ce paiement', f"{money(record['amount']):,.2f} $"],
-            ['Cumul des paiements enregistrés', f"{money(record['cumulative']):,.2f} $"],
-            ['Solde de la facture', f'{remaining:,.2f} $']]
+            ['Montant reçu pour ce paiement', f'{received:,.2f} $']]
+    if credit:
+        rows.extend([['Montant imputé à cette facture', f'{applied:,.2f} $'],
+                     ['Crédit client non imputé', f'{credit:,.2f} $']])
+    rows.extend([['Cumul des paiements imputés à cette facture', f"{money(record['cumulative']):,.2f} $"],
+                 ['Solde de la facture', f'{remaining:,.2f} $']])
     table = Table(rows, colWidths=[12*cm,5*cm])
     table.setStyle(TableStyle([('FONTNAME',(0,0),(-1,-1),'Helvetica'),
         ('FONTSIZE',(0,0),(-1,-1),10),('ALIGN',(1,0),(1,-1),'RIGHT'),
         ('BOTTOMPADDING',(0,0),(-1,-1),10),('TOPPADDING',(0,0),(-1,-1),10),
-        ('BACKGROUND',(0,3),(-1,3),colors.HexColor('#E8EFF5')),
-        ('FONTNAME',(0,3),(-1,3),'Helvetica-Bold')]))
+        ('BACKGROUND',(0,-1),(-1,-1),colors.HexColor('#E8EFF5')),
+        ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]))
+    allocation_note = ('Le crédit client indiqué ci-dessus reste disponible et n’est imputé à aucune facture.'
+                       if credit else 'Le paiement est imputé exclusivement à la facture identifiée dans ce reçu.')
     story += [table, Spacer(1,.55*cm), Paragraph(status,styles['Heading2']),
-              p('Metra Consultation Inc. confirme avoir reçu le montant indiqué ci-dessus, '
-                'imputé exclusivement à la facture identifiée dans ce reçu.'),
+              p('Metra Consultation Inc. confirme avoir reçu le montant indiqué ci-dessus. ' + allocation_note),
               p('Ce reçu confirme ce paiement. Il ne libère pas des montants dus au titre '
                 'd’autres factures ou du solde du contrat.'),
               Spacer(1,.45*cm), p('Arash Rohani, ing., P.Eng.<br/>Président - Metra Consultation Inc.')]
