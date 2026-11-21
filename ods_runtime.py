@@ -682,6 +682,18 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     legacy.user_data[uid] = session
     legacy.save_user_data()
     if only_outstanding:
+        total = report['total'] + sum(provisional.values())
+        if provisional:
+            total_label = "Total max. des soldes"
+        elif missing_contract:
+            total_label = "Total des soldes connus"
+        else:
+            total_label = "Total des soldes"
+        rows.insert(0, [{
+            "text": f"{total_label} · {amount(total)} HT",
+            "style": "success",
+            "callback_data": "od_invoice_project:total",
+        }])
         balance_label = "Solde vérifié" if provisional else "Reste à recevoir"
         text = ("🧾 Projets à encaisser\n\n"
                 f"💰 {balance_label} : {amount(report['total'])}\n"
@@ -690,8 +702,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
                 "Les soldes ci-dessous sont avant taxes.\n"
                 "Touchez un projet pour l’ouvrir.")
         if provisional:
-            maximum = report['total'] + sum(provisional.values())
-            text += (f"\n\nSolde max, paiements à vérifier inclus : {amount(maximum)} HT. "
+            text += (f"\n\nSolde max, paiements à vérifier inclus : {amount(total)} HT. "
                      f"Les lignes Max concernent {len(provisional)} projet(s) dont les encaissements restent à confirmer.")
         if missing_contract:
             text += f"\n⚠️ {missing_contract} projet(s) hors total : montant du contrat à confirmer."
@@ -731,6 +742,8 @@ def _registered_contract_price(folder):
 
 
 def select_onedrive_project(chat_id, uid, choice_id):
+    if choice_id == "total":
+        return
     if choice_id == "all":
         return show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=False)
     uid = str(uid)
