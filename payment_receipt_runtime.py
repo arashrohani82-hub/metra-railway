@@ -25,15 +25,16 @@ INVOICE_NET_CACHE = {}
 
 
 def project_received_fractions(contracts):
-    """Compute project receipts net of each invoice's actual taxes.
+    """Compute the portion of each contract already collected.
 
-    The ledger contains payments, not billing progress. Never add cumulative
-    receipt balances, and never assume that a fully paid invoice pays a contract.
+    Invoice payments contribute their pre-tax share. Cash recorded directly
+    against a project is applied at its recorded amount, without an invoice.
     """
     grouped = {}
     for record in ledger().values():
         match = re.match(r'P\d{2}-\d{3}(?!\d)', record.get('project_folder', ''), re.I)
-        if record.get('invoice') and match and match.group(0).upper() in contracts:
+        project_cash = record.get('accounting_only') and record.get('method') == CASH
+        if match and match.group(0).upper() in contracts and (record.get('invoice') or project_cash):
             grouped.setdefault(match.group(0).upper(), []).append(record)
     result = {}
     token = None
@@ -44,7 +45,10 @@ def project_received_fractions(contracts):
                 continue
             net_paid = Decimal('0.00')
             for record in records:
-                invoice = record['invoice']
+                invoice = record.get('invoice')
+                if not invoice:
+                    net_paid += money(record['received'])
+                    continue
                 path = invoice.get('path') or f"{legacy.INVOICE_FOLDER}/{invoice['filename']}"
                 cache_key = (path, invoice['total'])
                 with LOCK:
