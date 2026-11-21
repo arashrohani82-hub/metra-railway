@@ -286,7 +286,7 @@ def test_project_picker_can_register_cash_without_an_invoice(tmp_path):
         assert record['method'] == receipts.CASH and record['accounting_only'] and record['archived']
         assert 'invoice' not in record
         assert receipts.invoice_records(invoice()) == []
-        assert receipts.project_received_fractions({'P26-059': 1700}) == {}
+        assert receipts.project_received_fractions({'P26-059': 1700}) == {'P26-059': 400 / 1700}
         assert 'Total en espèces sans facture : 400.00 $' in tg.call_args.args[1]
         upload.assert_called_once()
         assert upload.call_args.args[2].endswith('.json')
