@@ -69,3 +69,22 @@ def test_maximum_combines_verified_balances_and_contracts_to_verify():
     assert 'Solde max, paiements à vérifier inclus : 5 600,00 $ HT' in text
     assert '1 projet(s) hors total' in text
     assert [row[1]['text'] for row in buttons[:-1]] == ['Max 3 500 $', '2 100 $', 'Contrat à confirmer']
+
+
+
+def test_confirmed_client_replaces_stale_project_059_metadata():
+    folder = 'P26-059-PHH-Conception'
+    item = {'name': folder, 'client_name': 'Arash Rohani'}
+    assert ods._project_payment_label(item, compact=True, show_payment=False).startswith(
+        '059-PHH · Pedram Hooshangitabrizi · ')
+    uid = 'invoice-name-059'
+    app.user_data[uid] = {'invoice_project_choices': {'1': {'folder': folder}}}
+    old = {'name': 'Arash Rohani', 'email': 'old@example.com', 'price': 1700}
+    with patch.object(ods, '_find_history_by_project_folder', return_value=('offer', {'data': old})), \
+         patch.object(ods, 'recover_project_metadata_from_onedrive', return_value={}), \
+         patch.object(ods, '_registered_contract_price', return_value=1700), \
+         patch.object(app, 'save_user_data'), patch.object(app, 'tg') as tg:
+        ods.select_onedrive_project(1, uid, '1')
+        assert app.user_data[uid]['name'] == 'Pedram Hooshangitabrizi'
+        assert not app.user_data[uid].get('email')
+        assert tg.call_args.args[2][0][0]['callback_data'] == 'pay_start'
