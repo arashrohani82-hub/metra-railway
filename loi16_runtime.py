@@ -444,8 +444,8 @@ def install(ods, departments):
     ods.do_extract_text = lambda chat, uid, text: extract(chat, uid, text=text)
     ods.do_extract_many = lambda chat, uid, ids: extract(chat, uid, file_ids=ids)
     _OLD_CREATE = ods._do_create_project
-    def create(chat_id, uid, offer_ref=None):
-        result = _OLD_CREATE(chat_id, uid, offer_ref)
+    def create(chat_id, uid, offer_ref=None, agreed_cents=None):
+        result = _OLD_CREATE(chat_id, uid, offer_ref, agreed_cents)
         record = ods.offers_history.get(str(uid), {}).get(offer_ref, {}) if offer_ref else {}
         data = record.get('data') or ods.user_data.get(str(uid), {})
         if is_loi16(data) and data.get('project_created') and not data.get('loi16_checklist_shown'):

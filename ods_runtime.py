@@ -883,6 +883,9 @@ def open_project_invoice(chat_id, uid, choice):
         legacy.tg(chat_id, "❌ Impossible de vérifier le contrat dans List.xlsx. Réessayez la sélection du projet.")
         return
     if registered_price is not None:
+        original_price = _contract_amount(data.get("price"))
+        if original_price is not None and original_price != registered_price:
+            data.setdefault("quoted_price", original_price)
         data["price"] = registered_price
 
     data["pending_invoice"] = None

@@ -25,6 +25,7 @@ from invoice_engine import (
 from concurrent.futures import ThreadPoolExecutor
 from quote_sms import notify_quote, operator_message as sms_operator_message
 from email_inline_logo import LOGO_SOURCE, inline_logo_attachment
+from payment_receipts import money, parse_amount
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -630,15 +631,18 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
         tg(chat_id, message)
         return
     data = record.get('data') or {}
+    quoted = money(data.get('quoted_price', data.get('price') or 0))
     tg(
         chat_id,
         "Confirmer la conversion en projet :\n\n"
         f"ODS : {ref}\n"
         f"Client : {data.get('name') or 'Non indiqué'}\n"
         f"Projet : {data.get('project_title') or data.get('service') or 'Non indiqué'}\n"
-        f"Envoyée : {record.get('sent_at') or 'Non indiqué'}",
+        f"Envoyée : {record.get('sent_at') or 'Non indiqué'}\n"
+        f"Montant proposé : {quoted:,.2f} $ avant taxes",
         [
             [{'text': '✅ Créer le projet', 'callback_data': f'offer_convert:{ref}'}],
+            [{'text': '💰 Appliquer un rabais', 'callback_data': f'offer_rabais:{ref}'}],
             [
                 {'text': '❌ Refused', 'callback_data': f'offer_status:Refused:{ref}'},
                 {'text': '🔒 Closed', 'callback_data': f'offer_status:Closed:{ref}'},
@@ -647,6 +651,80 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
             [{'text': '🔄 In process', 'callback_data': f'offer_status:In process:{ref}'}],
         ],
     )
+
+
+DISCOUNT_PROMPT = "💰 Montant convenu avant taxes pour "
+
+
+def _offer_discount_amounts(data, amount):
+    quoted = money(data.get('quoted_price', data.get('price') or 0))
+    if not 0 < amount < quoted:
+        raise ValueError('Le montant convenu doit être positif et inférieur au montant proposé.')
+    return quoted, quoted - amount
+
+
+def handle_offer_discount(update):
+    callback = update.get('callback_query') or {}
+    message = callback.get('message') or update.get('message') or {}
+    actor = callback.get('from') or message.get('from') or {}
+    if actor.get('id') not in ALLOWED_USERS:
+        return False
+    uid = str(actor['id'])
+    chat_id = (message.get('chat') or {}).get('id')
+    action, _, payload = str(callback.get('data') or '').partition(':')
+    if action in ('offer_rabais', 'offer_rabais_apply'):
+        ref, _, cents = payload.partition(':')
+        _ack_offer_discount(callback)
+    elif not callback:
+        reply = message.get('reply_to_message') or {}
+        prompt = str(reply.get('text') or '').partition('\n')[0]
+        bot_id = str(BOT_TOKEN or '').partition(':')[0]
+        if not (bot_id and str(reply.get('from', {}).get('id')) == bot_id
+                and prompt.startswith(DISCOUNT_PROMPT) and message.get('text')):
+            return False
+        ref = prompt.removeprefix(DISCOUNT_PROMPT)
+    else:
+        return False
+
+    record = offers_history.get(uid, {}).get(ref)
+    if not record or record.get('converted'):
+        show_offer_conversion_confirmation(chat_id, uid, ref)
+        return True
+    if action == 'offer_rabais':
+        tg(chat_id, f"{DISCOUNT_PROMPT}{ref}\n\nRépondez avec le montant final. Exemple : 6500 ou 6 500,50.",
+           reply_markup={'force_reply': True})
+    elif action == 'offer_rabais_apply':
+        if re.fullmatch(r'[0-9]{1,15}', cents):
+            executor.submit(do_create_project, chat_id, uid, ref, cents)
+        else:
+            tg(chat_id, "❌ Montant invalide. Rouvrez la fiche de l’offre.")
+    else:
+        raw = re.sub(r'\s', '', message['text'])
+        try:
+            if not re.fullmatch(r'[0-9]{1,13}(?:[.,][0-9]{1,2})?\$?', raw):
+                raise ValueError('Entrez un montant comme 6500 ou 6 500,50.')
+            amount = parse_amount(raw)
+            quoted, discount = _offer_discount_amounts(record.get('data') or {}, amount)
+        except ValueError as exc:
+            tg(chat_id, f"❌ {exc}\nRépondez de nouveau au message de saisie.")
+            return True
+        tg(chat_id,
+           f"📁 {ref}\n\nMontant proposé : {quoted:,.2f} $\n"
+           f"Rabais : {discount:,.2f} $\nMontant convenu avant taxes : {amount:,.2f} $",
+           [[{'text': '✅ Créer le projet avec ce montant',
+              'callback_data': f'offer_rabais_apply:{ref}:{int(amount * 100)}'}],
+            [{'text': '✏️ Modifier le montant', 'callback_data': f'offer_rabais:{ref}'}],
+            [{'text': '⬅️ Retour', 'callback_data': f'offer_pick:{ref}'}]])
+    return True
+
+
+def _ack_offer_discount(callback):
+    try:
+        req.post(f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+                 json={'callback_query_id': callback.get('id')}, timeout=3)
+    except req.RequestException:
+        logger.warning('Could not acknowledge Telegram discount callback')
+
 
 def draw_header_footer(canvas, doc):
     canvas.saveState()
@@ -1525,7 +1603,7 @@ def upsert_ods_list_workbook(workbook, data, status='In process', accepted_at=No
     ws.cell(target_row, columns['year']).value = sheet_year
     ws.cell(target_row, columns['month']).value = sent_date.strftime('%B')
     ws.cell(target_row, columns['description']).value = str(data.get('odsNum') or reference)
-    ws.cell(target_row, columns['price']).value = price
+    ws.cell(target_row, columns['price']).value = float(data.get('quoted_price', price))
     ws.cell(target_row, columns['date']).value = sent_date
     ws.cell(target_row, columns['status']).value = status
     ws.cell(target_row, columns['accepted_price']).value = price if accepted else 0
@@ -2273,12 +2351,12 @@ def do_issue_invoice(chat_id, uid):
         invoice_creation_lock.release()
 
 
-def do_create_project(chat_id, uid, offer_ref=None):
+def do_create_project(chat_id, uid, offer_ref=None, agreed_cents=None):
     if not project_creation_lock.acquire(blocking=False):
         tg(chat_id, "⏳ Une création de projet est déjà en cours. Réessayez dans un instant.")
         return
     try:
-        return _do_create_project(chat_id, uid, offer_ref)
+        return _do_create_project(chat_id, uid, offer_ref, agreed_cents)
     finally:
         project_creation_lock.release()
 
@@ -2307,7 +2385,7 @@ def do_update_ods_status(chat_id, uid, status, offer_ref=None):
         tg(chat_id, f"❌ Mise à jour de List.xlsx impossible : {exc}")
 
 
-def _do_create_project(chat_id, uid, offer_ref=None):
+def _do_create_project(chat_id, uid, offer_ref=None, agreed_cents=None):
     uid = str(uid)
     history_record = None
     if offer_ref:
@@ -2348,6 +2426,14 @@ def _do_create_project(chat_id, uid, offer_ref=None):
         tg(chat_id, "⏳ Création du projet déjà en cours.")
         return
 
+    if agreed_cents is not None:
+        try:
+            amount = money(agreed_cents) / 100
+            quoted, _ = _offer_discount_amounts(data, amount)
+        except ValueError as exc:
+            tg(chat_id, f"❌ {exc}")
+            return
+
     data['project_creating'] = True
     if history_record is not None:
         history_record['data'] = history_data_copy(data)
@@ -2358,6 +2444,9 @@ def _do_create_project(chat_id, uid, offer_ref=None):
     try:
         tg(chat_id, "⏳ Création du dossier de projet dans OneDrive...")
         folder_name, web_url = create_project_from_ods(data)
+        if agreed_cents is not None:
+            data['quoted_price'] = float(quoted)
+            data['price'] = float(amount)
         accepted_at = datetime.now()
         list_sync_error = None
         try:
@@ -2400,6 +2489,8 @@ def _do_create_project(chat_id, uid, offer_ref=None):
             "6 sous-dossiers créés.\n"
             "PDF et Excel classés dans Correspondence."
         )
+        if agreed_cents is not None:
+            message += f"\n💰 Montant convenu avant taxes : {amount:,.2f} $"
         if web_url:
             message += f"\n\n🔗 {web_url}"
         if list_sync_error:
