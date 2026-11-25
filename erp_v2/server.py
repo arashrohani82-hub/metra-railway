@@ -17,6 +17,14 @@ with psycopg.connect(url, autocommit=True) as conn:
         from import_snapshot import import_snapshot
         count = import_snapshot(conn, os.environ['ERP_CONTROL_SNAPSHOT'], 'onedrive-control-project')
         print(f'ERP snapshot imported: {count} rows', flush=True)
+    if os.environ.get("ERP_RECEIPT_SNAPSHOT"):
+        import json
+        records=json.loads(os.environ["ERP_RECEIPT_SNAPSHOT"])
+        with conn.transaction():
+            conn.execute("DELETE FROM erp.receipt_snapshots")
+            with conn.cursor() as cur:
+                cur.executemany("INSERT INTO erp.receipt_snapshots VALUES (%s,%s,%s,%s,%s,%s,%s)",records)
+        print(f"ERP receipt snapshot imported: {len(records)} rows",flush=True)
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 @app.get("/health")
 def health():
@@ -32,6 +40,11 @@ def summary():
     return {"mode":"sandbox","project_count":row[0],"duplicate_codes":row[1],"reported_contract_cad":str(row[2]) if row[2] is not None else None,"reported_uncollected_contract_cad":str(row[3]) if row[3] is not None else None,"verified_open_invoice_count":verified[0],"verified_open_invoice_cad":str(verified[1]) if verified[1] is not None else None}
 
 
+@app.get("/receipt-summary")
+def receipt_summary():
+    with psycopg.connect(url) as conn:
+        rows=conn.execute("SELECT invoice_number,receipt_count,received,source_invoice_total,source_balance FROM erp.receipt_reconciliation ORDER BY invoice_number").fetchall()
+    return {"verified_dispatch":False,"rows":[dict(zip(["invoice","receipts","received","source_total","source_balance"],[str(v) if v is not None else None for v in r])) for r in rows]}
 from fastapi.responses import HTMLResponse
 from html import escape
 @app.get("/",response_class=HTMLResponse)
