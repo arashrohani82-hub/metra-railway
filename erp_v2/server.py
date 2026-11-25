@@ -13,6 +13,10 @@ with psycopg.connect(url, autocommit=True) as conn:
         conn.execute(path.read_text())
     from selftest import run
     run(conn)
+    if os.environ.get('ERP_CONTROL_SNAPSHOT'):
+        from import_snapshot import import_snapshot
+        count = import_snapshot(conn, os.environ['ERP_CONTROL_SNAPSHOT'], 'onedrive-control-project')
+        print(f'ERP snapshot imported: {count} rows', flush=True)
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 @app.get("/health")
 def health():
