@@ -35,6 +35,7 @@ def test_final_reminder_from_menu_requires_confirmation_and_cannot_repeat(monkey
         runtime.department_dispatch(update)
         return update
 
+    assert any(cell["text"] == followup.BUTTON for row in followup.legacy.main_menu()["keyboard"] for cell in row)
     runtime.department_dispatch({"message": {**message, "text": followup.BUTTON}})
     click()  # Project
     click()  # Invoice

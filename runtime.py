@@ -17,7 +17,6 @@ import ods_recovery  # noqa: E402,F401
 import invoice_control_runtime  # noqa: E402,F401
 import payment_receipt_runtime  # noqa: E402,F401
 import invoice_followup_runtime  # noqa: E402
-invoice_followup_runtime.install_menu()
 import dashboard_runtime  # noqa: E402,F401  # registers /router/company-metrics for CEO dashboard
 import ods_runtime as invoice_runtime  # noqa: E402
 # Restore the established offer follow-up chain before the department router
@@ -33,6 +32,7 @@ import email_branding_patch  # noqa: E402,F401
 
 import app as ods_app
 import google_review_runtime  # noqa: E402
+invoice_followup_runtime.install_menu()
 google_review_runtime.install_menu()
 import project_capacity_runtime  # noqa: E402
 import marketing_runtime  # noqa: E402
