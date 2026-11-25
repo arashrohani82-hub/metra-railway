@@ -421,6 +421,12 @@ def dispatch(update, original, ods, departments):
         # keyboard entry differently from the canonical standard catalogue.
         with _LOCK:
             replies.update({v: k for k, v in _CACHE.items() if k in ('📝 Nouvelle offre', '❌ Annuler', '❓ Aide', '📁 Convertir une offre en projet', '🧾 Facturation', '🧾 Facturer un projet', '📬 Suivi offres', '📷 Envoyer une photo', '📋 Coller un texte')})
+        from invoice_followup_runtime import BUTTON as INVOICE_FOLLOWUP, PREFIX as INVOICE_FOLLOWUP_PREFIX
+        replies['📨 Invoice follow-up'] = INVOICE_FOLLOWUP
+        with _LOCK:
+            translated_followup = _CACHE.get(INVOICE_FOLLOWUP)
+        if translated_followup:
+            replies[translated_followup] = INVOICE_FOLLOWUP
         replies['⭐ Request a Google review'] = '⭐ Demander un avis Google'
         with _LOCK:
             translated_review = _CACHE.get('⭐ Demander un avis Google')
@@ -430,6 +436,9 @@ def dispatch(update, original, ods, departments):
             update = copy.deepcopy(update)
             update['message']['text'] = replies[text]
         PREFERENCES[uid] = prefs
+        if replies.get(text, text) == INVOICE_FOLLOWUP or cdata.startswith(INVOICE_FOLLOWUP_PREFIX):
+            # Keep the preview identical to the French letter sent to the client.
+            LANGUAGE.set('fr')
         result = original(update)
         if uid in ods.user_data:
             ods.user_data[uid].update(prefs)

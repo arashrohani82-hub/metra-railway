@@ -139,19 +139,17 @@ def selected_invoice(uid, key):
     return None
 
 
-def show_invoices(chat_id, uid):
-    data = legacy.user_data.get(uid, {})
-    if not data.get('project_folder'):
-        legacy.tg(chat_id, '⚠️ Sélectionnez le projet dans Facturation.')
-        return
+def open_project_invoices(project_folder):
+    """Find archived project invoices with a balance in the payment ledger."""
     token = legacy.graph_access_token()
     # Some legacy folders contain an empty discipline segment, e.g.
     # P26-034-_STR_XWW. The numeric project reference is still valid.
-    project_match = re.search(r'P\d{2}-\d{3}(?!\d)(?:-[A-Z0-9]{2,5})?', data['project_folder'], re.I)
+    project_match = re.search(r'P\d{2}-\d{3}(?!\d)(?:-[A-Z0-9]{2,5})?', project_folder, re.I)
     if not project_match:
         raise ValueError('Code du projet introuvable')
     project = project_match.group(0).upper()
-    choices = {}
+    invoices = []
+    records = ledger()
     for item in legacy.list_onedrive_children(token, legacy.INVOICE_DRIVE_OWNER, legacy.INVOICE_FOLDER):
         filename = item.get('name') or ''
         if not filename.lower().endswith('.pdf') or not filename.upper().startswith('FAC'):
@@ -167,11 +165,20 @@ def show_invoices(chat_id, uid):
             continue
         details = invoice_details(text, filename)
         details['path'] = path
-        _, balance = payment_balance(details, invoice_records(details))
+        _, balance = payment_balance(details, invoice_records(details, records))
         if balance <= 0:
             continue
         details['remaining'] = str(balance)
-        choices[uuid.uuid4().hex[:16]] = details
+        invoices.append(details)
+    return invoices
+
+
+def show_invoices(chat_id, uid):
+    data = legacy.user_data.get(uid, {})
+    if not data.get('project_folder'):
+        legacy.tg(chat_id, '⚠️ Sélectionnez le projet dans Facturation.')
+        return
+    choices = {uuid.uuid4().hex[:16]: invoice for invoice in open_project_invoices(data['project_folder'])}
     remember_invoices(uid, data['project_folder'], choices)
     data['payment_choices'] = choices
     data.pop('payment_pending', None)
