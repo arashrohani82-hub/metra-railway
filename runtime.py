@@ -76,8 +76,6 @@ def department_dispatch(update):
     data = ods_app.user_data.get(uid, {}) if uid else {}
     if chat_id and user.get('id') in ods_app.ALLOWED_USERS:
         refresh_reply_keyboard(chat_id)
-    if ods_app.handle_offer_discount(update):
-        return
     if not callback and str(message.get('text') or '').strip() == '/menu':
         if user.get('id') not in ods_app.ALLOWED_USERS:
             ods_app.tg(chat_id, '⛔ Ce bot est privé.')
@@ -199,6 +197,8 @@ def department_dispatch(update):
     if marketing_runtime.handle(update or {}):
         return
     def dispatch_selected(value):
+        if ods_app.handle_offer_discount(value):
+            return
         if loi16_runtime.handle(value):
             return
         return _french_department_dispatch(value)

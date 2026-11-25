@@ -25,6 +25,7 @@ from invoice_engine import (
 from concurrent.futures import ThreadPoolExecutor
 from quote_sms import notify_quote, operator_message as sms_operator_message
 from email_inline_logo import LOGO_SOURCE, inline_logo_attachment
+from offer_identity import ODS_PATTERN
 from payment_receipts import money, parse_amount
 
 logging.basicConfig(level=logging.INFO)
@@ -653,7 +654,7 @@ def show_offer_conversion_confirmation(chat_id, uid, ref):
     )
 
 
-DISCOUNT_PROMPT = "💰 Montant convenu avant taxes pour "
+DISCOUNT_PROMPT = "💰 "
 
 
 def _offer_discount_amounts(data, amount):
@@ -678,11 +679,12 @@ def handle_offer_discount(update):
     elif not callback:
         reply = message.get('reply_to_message') or {}
         prompt = str(reply.get('text') or '').partition('\n')[0]
+        match = re.fullmatch(rf'{DISCOUNT_PROMPT}({ODS_PATTERN})', prompt)
         bot_id = str(BOT_TOKEN or '').partition(':')[0]
         if not (bot_id and str(reply.get('from', {}).get('id')) == bot_id
-                and prompt.startswith(DISCOUNT_PROMPT) and message.get('text')):
+                and match and message.get('text')):
             return False
-        ref = prompt.removeprefix(DISCOUNT_PROMPT)
+        ref = match.group(1)
     else:
         return False
 
@@ -691,7 +693,7 @@ def handle_offer_discount(update):
         show_offer_conversion_confirmation(chat_id, uid, ref)
         return True
     if action == 'offer_rabais':
-        tg(chat_id, f"{DISCOUNT_PROMPT}{ref}\n\nRépondez avec le montant final. Exemple : 6500 ou 6 500,50.",
+        tg(chat_id, f"{DISCOUNT_PROMPT}{ref}\n\nRépondez avec le montant convenu avant taxes. Exemple : 6500 ou 6 500,50.",
            reply_markup={'force_reply': True})
     elif action == 'offer_rabais_apply':
         if re.fullmatch(r'[0-9]{1,15}', cents):

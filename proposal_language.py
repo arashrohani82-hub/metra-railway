@@ -136,6 +136,11 @@ def install(ods, departments):
     def tg(chat_id, text, keyboard=None, reply_markup=None):
         if LANGUAGE.get() != 'en':
             return old_tg(chat_id, text, keyboard, reply_markup)
+        prompt_reference = ''
+        if (reply_markup or {}).get('force_reply') and text.startswith(ods.DISCOUNT_PROMPT):
+            # Telegram sends this line back with the reply to identify the offer.
+            first_line, _, text = text.partition('\n\n')
+            prompt_reference = first_line + '\n\n'
         kb, markup = copy.deepcopy(keyboard), copy.deepcopy(reply_markup)
         slots = []
         def buttons(value):
@@ -159,7 +164,7 @@ def install(ods, departments):
                 slot['text'] = value
                 if slot.get('_placeholder'):
                     markup['input_field_placeholder'] = value
-            return old_tg(chat_id, translated[0], kb, markup)
+            return old_tg(chat_id, prompt_reference + translated[0], kb, markup)
         except Exception:
             ods.logger.exception('English message translation failed')
             # Never silently show a French document as an English result.
