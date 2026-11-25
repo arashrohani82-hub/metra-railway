@@ -548,7 +548,9 @@ def projects_awaiting_settlement(projects, include_financials=False):
         project_col = headers.index("project no")
         financial_col = headers.index("financial % complet")
         status_cols = [i for i, h in enumerate(headers) if h == "status"]
-        excluded = set()
+        # Manual settlement confirmed by the owner on 2026-11-25.
+        # Display exclusion only; retain the original accounting records.
+        excluded = {'036'}
         received = {}
         contracts = {}
         physical = {}
