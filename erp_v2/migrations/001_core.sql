@@ -1,0 +1,13 @@
+BEGIN;
+CREATE SCHEMA IF NOT EXISTS erp;
+CREATE TABLE IF NOT EXISTS erp.clients (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, source_key text UNIQUE NOT NULL, name text NOT NULL, email text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS erp.projects (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, code text UNIQUE NOT NULL, client_id bigint REFERENCES erp.clients(id), title text NOT NULL, region text, status text NOT NULL DEFAULT 'unknown', source_ref text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS erp.contracts (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, project_id bigint NOT NULL REFERENCES erp.projects(id), source_key text UNIQUE NOT NULL, net_amount numeric(14,2) NOT NULL CHECK(net_amount>=0), currency char(3) NOT NULL DEFAULT 'CAD', accepted_on date);
+CREATE TABLE IF NOT EXISTS erp.invoices (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, project_id bigint NOT NULL REFERENCES erp.projects(id), source_key text UNIQUE NOT NULL, invoice_number text UNIQUE NOT NULL, net_amount numeric(14,2) NOT NULL CHECK(net_amount>=0), tax_amount numeric(14,2) NOT NULL CHECK(tax_amount>=0), sent_at timestamptz, due_on date, voided_at timestamptz);
+CREATE TABLE IF NOT EXISTS erp.payments (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, project_id bigint NOT NULL REFERENCES erp.projects(id), source_key text UNIQUE NOT NULL, amount numeric(14,2) NOT NULL CHECK(amount>0), received_on date, method text, reversed_at timestamptz, UNIQUE(id,project_id));
+ALTER TABLE erp.invoices ADD COLUMN IF NOT EXISTS currency char(3) NOT NULL DEFAULT 'CAD';
+ALTER TABLE erp.payments ADD COLUMN IF NOT EXISTS currency char(3) NOT NULL DEFAULT 'CAD';
+CREATE TABLE IF NOT EXISTS erp.allocations (payment_id bigint NOT NULL REFERENCES erp.payments(id), invoice_id bigint NOT NULL REFERENCES erp.invoices(id), amount numeric(14,2) NOT NULL CHECK(amount>0), PRIMARY KEY(payment_id,invoice_id));
+CREATE TABLE IF NOT EXISTS erp.audit_events (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, occurred_at timestamptz NOT NULL DEFAULT now(), actor text NOT NULL, entity text NOT NULL, entity_key text NOT NULL, action text NOT NULL, details jsonb NOT NULL DEFAULT '{}');
+CREATE OR REPLACE VIEW erp.invoice_balances AS SELECT i.id,i.project_id,i.invoice_number,i.currency,i.sent_at,i.due_on,i.net_amount+i.tax_amount AS total,coalesce(a.paid,0) AS allocated,i.net_amount+i.tax_amount-coalesce(a.paid,0) AS balance FROM erp.invoices i LEFT JOIN (SELECT a.invoice_id,sum(a.amount) AS paid FROM erp.allocations a JOIN erp.payments p ON p.id=a.payment_id WHERE p.reversed_at IS NULL GROUP BY a.invoice_id) a ON a.invoice_id=i.id WHERE i.voided_at IS NULL;
+COMMIT;
