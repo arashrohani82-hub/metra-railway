@@ -625,21 +625,54 @@ def _invoice_clients_for_all_projects(projects):
             for item in projects]
 
 
-def _invoice_sent_dates():
-    """Read confirmed send timestamps, never infer sending from PDF creation."""
+def _invoice_sent_dates(projects):
+    """Conservative follow-up: confirmed sent invoices less verified collections."""
+    from decimal import Decimal
+    from payment_receipts import money, payment_balance
+    from payment_receipt_runtime import ledger, invoice_records, today
+    invoices = {}
     dates = {}
-    for records in getattr(legacy, "offers_history", {}).values():
-        for record in records.values():
-            data = record.get("data") or {}
-            code = _project_number(data.get("project_folder") or record.get("project_folder"))
-            stamp = data.get("invoice_issued_at")
-            if not code or not stamp:
+    try:
+        records = ledger()
+        for history in getattr(legacy, "offers_history", {}).values():
+            for record in history.values():
+                data = record.get("data") or {}
+                code = _project_number(data.get("project_folder") or record.get("project_folder"))
+                stamp = data.get("invoice_issued_at")
+                filename = data.get("invoice_filename")
+                if not code or not stamp or not filename:
+                    continue
+                try:
+                    day = datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).date()
+                    net = money(data.get("invoice_subtotal"))
+                    total = money(data.get("invoice_total"))
+                    if net <= 0 or total <= 0 or day > today():
+                        continue
+                    invoices.setdefault(code, {})[filename] = (day, net, total)
+                except (ValueError, TypeError, ArithmeticError):
+                    continue
+        for item in projects:
+            code = _project_number(item.get("name"))
+            fraction = item.get("received_fraction")
+            contract = _contract_amount(item.get("contract"))
+            if fraction is None or contract is None or code not in invoices:
                 continue
-            try:
-                day = datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).date()
-            except (ValueError, TypeError):
-                continue
-            dates[code] = max(day, dates.get(code, day))
+            sent = invoices[code]
+            collected = money(Decimal(str(contract)) * Decimal(str(fraction)))
+            ledger_paid = Decimal("0")
+            open_days = []
+            for filename, (day, net, total) in sent.items():
+                paid, remaining = payment_balance({"filename": filename, "total": total},
+                    invoice_records({"filename": filename}, records))
+                ledger_paid += min(total, max(Decimal("0"), paid)) * net / total
+                if remaining > 0:
+                    open_days.append(day)
+            billed = sum((v[1] for v in sent.values()), Decimal("0"))
+            if open_days and billed - max(collected, money(ledger_paid)) > Decimal("0.01"):
+                dates[code] = min(open_days)
+    except Exception:
+        logger.exception("Unable to verify outstanding sent invoices")
+        return {}
     return dates
 
 
@@ -678,7 +711,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     session = legacy.user_data.get(uid, {})
     choices = {}
     rows = []
-    sent_dates = _invoice_sent_dates() if only_outstanding else {}
+    sent_dates = _invoice_sent_dates(projects) if only_outstanding else {}
     for item in projects[:30]:
         index = uuid.uuid4().hex[:12]
         folder = str(item.get("name") or "").strip()
@@ -701,10 +734,11 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
             else:
                 label = "Contrat à confirmer"
             age, style = _invoice_age_button(sent_dates.get(code))
+            amount_button = {'text': label, 'callback_data': f'od_invoice_project:{index}'}
             if age:
-                project_row[0]["text"] = age + " · " + project_row[0]["text"]
-                project_row[0]["style"] = style
-            project_row.append({'text': label, 'callback_data': f'od_invoice_project:{index}'})
+                amount_button["text"] = label + " · " + age
+                amount_button["style"] = style
+            project_row.append(amount_button)
         rows.append(project_row)
 
     session["invoice_project_choices"] = choices
