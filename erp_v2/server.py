@@ -11,6 +11,8 @@ if ".railway.internal" not in url:
 with psycopg.connect(url, autocommit=True) as conn:
     for path in sorted(Path(__file__).parent.joinpath("migrations").glob("*.sql")):
         conn.execute(path.read_text())
+    from selftest import run
+    run(conn)
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 @app.get("/health")
 def health():
