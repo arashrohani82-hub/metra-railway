@@ -625,6 +625,32 @@ def _invoice_clients_for_all_projects(projects):
             for item in projects]
 
 
+def _invoice_sent_dates():
+    """Read confirmed send timestamps, never infer sending from PDF creation."""
+    dates = {}
+    for records in getattr(legacy, "offers_history", {}).values():
+        for record in records.values():
+            data = record.get("data") or {}
+            code = _project_number(data.get("project_folder") or record.get("project_folder"))
+            stamp = data.get("invoice_issued_at")
+            if not code or not stamp:
+                continue
+            try:
+                day = datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).date()
+            except (ValueError, TypeError):
+                continue
+            dates[code] = max(day, dates.get(code, day))
+    return dates
+
+
+def _invoice_age_button(day):
+    if day is None:
+        return "", None
+    days = max(0, (datetime.now().date() - day).days)
+    marker = "🔴" if days >= 30 else "🟠" if days >= 7 else "🟡"
+    return f"{marker} J+{days}", "danger" if days >= 30 else "primary"
+
+
 def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     uid = str(uid)
     try:
@@ -652,6 +678,7 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
     session = legacy.user_data.get(uid, {})
     choices = {}
     rows = []
+    sent_dates = _invoice_sent_dates() if only_outstanding else {}
     for item in projects[:30]:
         index = uuid.uuid4().hex[:12]
         folder = str(item.get("name") or "").strip()
@@ -673,6 +700,10 @@ def show_onedrive_projects_for_invoice(chat_id, uid, only_outstanding=True):
                 label = f"Max {amount(provisional[code])}".replace(',00 $', ' $')
             else:
                 label = "Contrat à confirmer"
+            age, style = _invoice_age_button(sent_dates.get(code))
+            if age:
+                project_row[0]["text"] = age + " · " + project_row[0]["text"]
+                project_row[0]["style"] = style
             project_row.append({'text': label, 'callback_data': f'od_invoice_project:{index}'})
         rows.append(project_row)
 
